@@ -1,0 +1,6 @@
+{
+  "name": "Caller Announcer",
+  "description": "Announces caller name or number through connected Bluetooth headphones during incoming calls.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
