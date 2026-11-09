@@ -29,8 +29,20 @@ const Search = (() => {
     ['income', 'itr', 'banking', 'abb'],
     ['ntc', 'new', 'nocredit', 'firsttime'],
   ];
+  SYN_GROUPS.push(
+    ['proof', 'profe', 'prof', 'proff', 'prooff', 'evidence'],
+    ['property', 'house', 'residence', 'ownership', 'owned', 'own', 'prop', 'propery', 'proprty'],
+    ['rented', 'rent', 'tenant', 'rental'],
+    ['address', 'residence', 'resi', 'addr'],
+    ['guarantor', 'guarantee', 'coapplicant', 'co', 'surety'],
+    ['licence', 'license', 'dl', 'driving'],
+    ['permit', 'fitness', 'route'],
+    ['ftu', 'firsttime', 'fresh'],
+    ['allowed', 'permitted', 'possible', 'eligible', 'allow', 'acceptable'],
+  );
+  // a word may belong to several groups -> merge them
   const SYN = new Map();
-  SYN_GROUPS.forEach(g => g.forEach(w => SYN.set(w, g)));
+  SYN_GROUPS.forEach(g => g.forEach(w => { const cur = SYN.get(w) || new Set(); g.forEach(x => cur.add(x)); SYN.set(w, cur); }));
 
   const STOP = new Set(['a', 'an', 'the', 'is', 'are', 'for', 'of', 'to', 'in', 'on', 'and', 'or', 'with', 'what', 'which', 'how', 'my', 'me', 'i', 'it', 'be', 'can', 'has', 'have', 'at', 'by', 'from', 'customer', 'case', 'loan', 'want', 'need', 'give', 'show', 'find', 'than', 'below', 'above', 'less', 'more']);
 
@@ -105,7 +117,8 @@ const Search = (() => {
     const safe = escapeHtml(text);
     const words = expand(terms).sort((a, b) => b.length - a.length).map(w => w.replace(/[.*+?^${}()|[\]\\%]/g, '\\$&'));
     if (!words.length) return safe;
-    const re = new RegExp('\\b(' + words.join('|') + ')', 'gi');
+    // short words (pl, al, tw…) must match whole words; longer ones may match as prefix
+    const re = new RegExp('\\b(' + words.map(w => w.replace(/\\/g, '').length <= 3 ? w + '\\b' : w).join('|') + ')', 'gi');
     return safe.replace(re, '<mark>$1</mark>');
   }
 
@@ -131,5 +144,5 @@ const Search = (() => {
     return (start > 0 ? '…' : '') + text.slice(start, start + len).replace(/\s+/g, ' ') + (start + len < text.length ? '…' : '');
   }
 
-  return { tokens, queryTerms, scoreItem, highlight, snippet, escapeHtml, expand };
+  return { tokens, queryTerms, scoreItem, highlight, snippet, escapeHtml, expand, STOP };
 })();

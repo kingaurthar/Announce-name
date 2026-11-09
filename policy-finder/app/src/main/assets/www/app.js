@@ -314,19 +314,22 @@
       ]);
       if (r.score > 0.4) results.push({ kind: 'doc', item: d, ...r, page: bestPage(d, terms) });
     });
+    // Question like "can we do X without Y?" -> answer from uploaded policies
+    const qa = QA.answer(query, S);
     // Vehicle model + manufacturing year in the query -> instant max loan / tenure / rate
-    const vq = vehicleFromQuery(query);
+    const vq = qa && qa.verdict !== 'NOTFOUND' ? null : vehicleFromQuery(query);
     results.sort((a, b) => b.score - a.score);
 
-    if (!results.length && !vq) {
+    if (!results.length && !vq && !qa) {
       out.innerHTML = emptyBox(`No match for “${esc(query)}”. Try fewer or different words (e.g. product short form: pl, bl, lap, tw).`);
       return;
     }
     const top = results[0] || { score: 0 };
-    let html = vq ? quoteBox(vq.vehicle, vq.quote, true) : '';
+    let html = qa ? answerBox(qa) : '';
+    if (vq) html += quoteBox(vq.vehicle, vq.quote, true);
     // Instant answer box: best LTV grid lookup (if reasonably relevant), else top situation
     const gridHit = results.find(x => x.kind === 'grid' && x.lookup && x.score >= top.score * 0.4);
-    if (vq) { /* vehicle answer already shown */ } else if (gridHit) {
+    if (vq || qa) { /* answer already shown */ } else if (gridHit) {
       const g = gridHit.item, lk = gridHit.lookup;
       html += `<div class="result-box tap" data-open="grid" data-id="${g.id}" data-r="${lk.r}" data-c="${lk.c}">
         <div class="small">${esc(g.name)}</div>
@@ -354,6 +357,30 @@
       return docCard(it, terms, pageTxt ? Search.snippet(pageTxt, terms) : Search.snippet([it.notes, it.text].filter(Boolean).join(' · '), terms), res.page ? res.page.i + 1 : null);
     }).join('');
     out.innerHTML = html;
+  }
+
+  const VERDICT = {
+    NO: ['NO', 'Not possible as per your policy'],
+    YES: ['YES', 'Allowed as per your policy'],
+    COND: ['ONLY WITH CONDITIONS', 'Possible only if the conditions below are met'],
+    UNCLEAR: ['CHECK', 'Related policy lines found – read below'],
+    NOTFOUND: ['NOT FOUND', 'Nothing about this in your uploaded policies'],
+  };
+  function answerBox(a) {
+    const [big, sub] = VERDICT[a.verdict];
+    const terms = [...a.topic, ...a.lacking];
+    const ev = a.reasons.map(r => {
+      const sn = r.sn;
+      const open = sn.kind === 'doc' ? `data-open="doc" data-id="${sn.id}" ${sn.page ? `data-page="${sn.page}"` : ''}` : `data-open="${sn.kind}" data-id="${sn.id}"`;
+      const src = sn.kind === 'doc' ? `📄 ${esc(sn.title)}${sn.page ? ' · page ' + sn.page : ''}` : sn.kind === 'rule' ? `💡 Situation: ${esc(sn.title)}` : `📋 ${esc(sn.title)} – ${esc(sn.field)}`;
+      return `<div class="ev tap" ${open}><div class="q">“${Search.highlight(sn.text, terms)}”</div><div class="src">${src}${r.v ? ` · <b class="v-${r.v}">${esc(r.why)}</b>` : ''}${sn.sample ? ' · SAMPLE' : ''}</div></div>`;
+    }).join('');
+    return `<div class="answer v-${a.verdict}">
+      <div class="verdict">${big}</div><div class="vsub">${sub}</div>
+      ${a.lacking.length ? `<div class="meta">Missing: <b>${esc(a.lacking.join(' '))}</b></div>` : ''}
+      ${ev ? `<div class="why">Why – from your documents:</div>${ev}` : `<div class="meta" style="margin-top:6px">Upload the policy PDF / photo that covers this. For photos and scanned PDFs, run More → “Read text from photos &amp; scanned PDFs”.</div>`}
+      <div class="disc">Read automatically from your files. Always confirm with the full circular before sanction.</div>
+    </div>`;
   }
 
   function docCard(d, terms, snip, page) {
@@ -476,17 +503,47 @@
     } catch (e) { return ''; }
   }
 
-  async function pdfExtract(blob, onPage) {
+  // ---------- OCR (offline text reading for photos & scanned PDFs) ----------
+  let ocrWorkerP = null;
+  function getOcr() {
+    if (!ocrWorkerP) {
+      const base = new URL('lib/ocr/', location.href).href;
+      ocrWorkerP = Tesseract.createWorker('eng', 1, {
+        workerPath: base + 'worker.min.js', corePath: base, langPath: base.replace(/\/$/, ''),
+        gzip: false, cacheMethod: 'none',
+      }).catch(e => { ocrWorkerP = null; throw e; });
+    }
+    return ocrWorkerP;
+  }
+  async function ocrImage(src) {
+    const w = await getOcr();
+    const { data } = await w.recognize(src);
+    return (data && data.text || '').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+  }
+  async function renderPdfPageCanvas(page, targetWidth = 1700) {
+    const vp1 = page.getViewport({ scale: 1 });
+    const vp = page.getViewport({ scale: Math.min(3, targetWidth / vp1.width) });
+    const c = document.createElement('canvas'); c.width = vp.width; c.height = vp.height;
+    const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+    await page.render({ canvasContext: ctx, viewport: vp }).promise;
+    return c;
+  }
+
+  async function pdfExtract(blob, onPage, opts = {}) {
     const buf = await blob.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buf), isEvalSupported: false }).promise;
     const pageTexts = [];
-    let thumb = '';
+    let thumb = '', ocrUsed = false;
     for (let i = 1; i <= pdf.numPages; i++) {
       const page = await pdf.getPage(i);
       const tc = await page.getTextContent();
       let s = ''; let lastY = null;
       tc.items.forEach(it => { const y = it.transform ? it.transform[5] : null; if (lastY !== null && y !== null && Math.abs(y - lastY) > 2) s += '\n'; else if (s && !s.endsWith(' ')) s += ' '; s += it.str; lastY = y; });
-      pageTexts.push(s.replace(/[ \t]+/g, ' ').trim());
+      let pageText = s.replace(/[ \t]+/g, ' ').trim();
+      if ((pageText.length < 40 || opts.forceOcr) && opts.ocr !== false) {
+        try { onPage && onPage(i - 0.5, pdf.numPages, true); const c = await renderPdfPageCanvas(page); const t = await ocrImage(c); if (t.length > pageText.length) pageText = t; ocrUsed = true; } catch (e) { console.warn('ocr', e); }
+      }
+      pageTexts.push(pageText);
       if (i === 1) {
         try {
           const vp = page.getViewport({ scale: 1 }); const sc = 240 / vp.width; const v2 = page.getViewport({ scale: sc });
@@ -498,7 +555,7 @@
       onPage && onPage(i, pdf.numPages);
     }
     pdf.destroy();
-    return { pageTexts, thumb, pages: pageTexts.length };
+    return { pageTexts, thumb, pages: pageTexts.length, ocrUsed };
   }
 
   async function importFiles(files, productId) {
@@ -513,10 +570,12 @@
       const doc = { id: DB.uid(), fileId, fileName: f.name, title: f.name.replace(/\.[a-z0-9]+$/i, '').replace(/[_-]+/g, ' '), type: isPdf ? 'pdf' : 'image', productId: productId || '', tags: '', notes: '', text: '', pageTexts: [], created: Date.now() + k };
       try {
         if (isPdf) {
-          const r = await pdfExtract(f, (i, n) => { const bar = $('.progress div', box); if (bar) bar.style.width = (((k + i / n) / files.length) * 100) + '%'; });
-          doc.pageTexts = r.pageTexts; doc.text = r.pageTexts.join('\n'); doc.thumb = r.thumb; doc.pages = r.pages;
+          const r = await pdfExtract(f, (i, n, isOcr) => { const bar = $('.progress div', box); if (bar) bar.style.width = (((k + i / n) / files.length) * 100) + '%'; const m = $('.meta', box); if (m) m.textContent = `${isOcr ? 'Reading scanned page' : 'Reading page'} ${Math.ceil(i)}/${n} of ${f.name}`; });
+          doc.pageTexts = r.pageTexts; doc.text = r.pageTexts.join('\n'); doc.thumb = r.thumb; doc.pages = r.pages; doc.ocr = r.ocrUsed;
         } else {
           doc.thumb = await makeThumb(f);
+          const m = $('.meta', box); if (m) m.textContent = `Reading text from photo ${k + 1}/${files.length} (${f.name})…`;
+          try { const t = await ocrImage(f); doc.pageTexts = [t]; doc.text = t; doc.ocr = true; } catch (e) { console.warn('ocr', e); }
         }
       } catch (e) { console.warn(e); toast('Could not read ' + f.name); }
       await DB.put('docs', doc);
@@ -526,9 +585,24 @@
     await loadAll();
     renderTab();
     if (stack.length) showTopSheet();
-    const noText = created.filter(d => d.type === 'pdf' && !d.text.trim()).length;
-    toast(`${created.length} file(s) added${noText ? ` · ${noText} scanned PDF(s): add tags/notes for search` : ''}`, 3500);
+    const noText = created.filter(d => !d.text.trim()).length;
+    toast(`${created.length} file(s) added${noText ? ` · ${noText} with no readable text: add tags/notes` : ' · text read for search'}`, 3500);
     if (created.length === 1) editDoc(created[0]);
+  }
+
+  async function reReadDoc(d, onProgress) {
+    const f = await DB.get('files', d.fileId);
+    if (!f) return d;
+    const full = await DB.get('docs', d.id);
+    if (d.type === 'pdf') {
+      const r = await pdfExtract(f.blob, onProgress, { forceOcr: !(full.text || '').trim() || full._forceOcr });
+      full.pageTexts = r.pageTexts; full.text = r.pageTexts.join('\n'); full.ocr = r.ocrUsed;
+    } else {
+      onProgress && onProgress(0.5, 1, true);
+      const t = await ocrImage(f.blob); full.pageTexts = [t]; full.text = t; full.ocr = true;
+    }
+    await DB.put('docs', full);
+    return full;
   }
 
   const DOC_FIELDS = [
@@ -552,9 +626,23 @@
       entry.isDetail = true;
       entry.cleanup = () => { alive = false; if (objUrl) URL.revokeObjectURL(objUrl); if (pdf) pdf.destroy(); };
       actionBtn(actions, ICON.edit, 'Edit details', () => editDoc(d));
+      body.addEventListener('click', async e => {
+        const b = e.target.closest('[data-reocr]'); if (!b) return;
+        b.disabled = true; const msg = $('[data-ocrmsg]', body);
+        try {
+          const cur = await DB.get('docs', d.id); cur._forceOcr = true; await DB.put('docs', cur);
+          await reReadDoc(cur, (i, n) => { msg.textContent = `Reading ${Math.ceil(i)}/${n}…`; });
+          const fin = await DB.get('docs', d.id); delete fin._forceOcr; await DB.put('docs', fin);
+          await loadAll(); toast('Text updated'); showTopSheet();
+        } catch (er) { msg.textContent = 'Failed: ' + er.message; b.disabled = false; }
+      });
       const f = await DB.get('files', d.fileId);
       if (!f || !alive) { body.innerHTML = emptyBox('File missing.'); return; }
-      const meta = `<div class="meta" style="margin-bottom:8px">${esc([productName(d.productId), d.tags].filter(Boolean).join(' · '))}</div>${d.notes ? `<div class="card pre">${esc(d.notes)}</div>` : ''}`;
+      const meta = `<div class="meta" style="margin-bottom:8px">${esc([productName(d.productId), d.tags].filter(Boolean).join(' · '))}</div>${d.notes ? `<div class="card pre">${esc(d.notes)}</div>` : ''}
+        <details class="card" style="padding:8px 12px"><summary class="meta">Text read from this file (${(d.text || '').trim() ? (d.text.length.toLocaleString() + ' chars' + (d.ocr ? ', OCR' : '')) : 'none'})</summary>
+          <div class="pre" style="font-size:13px;max-height:40vh;overflow:auto;margin-top:6px">${esc((d.text || '').slice(0, 20000)) || 'No text yet.'}</div>
+          <button class="btn secondary small" data-reocr style="margin-top:8px">Read text again (OCR)</button><span class="meta" data-ocrmsg style="margin-left:8px"></span>
+        </details>`;
       if (d.type !== 'pdf') {
         objUrl = URL.createObjectURL(f.blob);
         let zoom = 100;
@@ -781,6 +869,12 @@
         <div class="btn-row" style="margin-top:10px"><button class="btn small secondary" id="csv">Import products from CSV</button><button class="btn small secondary" id="csvT">CSV template</button></div>
         <div class="hint">CSV columns: name, category, rate, pf, doc, other, amount, tenure, eligibility, notes, keywords</div>
       </div>
+      <div class="section-title">Text reading (OCR)</div>
+      <div class="card">
+        <button class="btn small secondary" id="ocrAll">Read text from photos &amp; scanned PDFs</button>
+        <div class="hint">Runs offline for files that have no text yet, so questions can be answered from them. Takes a few seconds per page.</div>
+        <div id="ocrAllMsg" class="meta"></div>
+      </div>
       <div class="section-title">Data</div>
       <div class="card">
         <div class="btn-row"><button class="btn small danger" id="delSample">Delete sample data</button><button class="btn small danger" id="wipe">Delete everything</button></div>
@@ -788,6 +882,16 @@
       </div>
       <div class="meta" style="text-align:center;margin-top:16px">Policy Finder · works offline</div>`;
     $('#addRule').onclick = () => editRule(null);
+    $('#ocrAll').onclick = async e => {
+      const todo = S.docs.filter(d => !(d.text || '').trim());
+      const msg = $('#ocrAllMsg');
+      if (!todo.length) { msg.textContent = 'All files already have text.'; return; }
+      e.target.disabled = true;
+      for (let k = 0; k < todo.length; k++) {
+        try { await reReadDoc(todo[k], (i, n) => { msg.textContent = `File ${k + 1}/${todo.length} (${todo[k].title}) – page ${Math.ceil(i)}/${n}`; }); } catch (er) { console.warn(er); }
+      }
+      await loadAll(); msg.textContent = `Done – ${todo.length} file(s) read.`; e.target.disabled = false;
+    };
     $('#emi').onclick = () => openEmi(null);
     $('#exp').onclick = exportBackup;
     $('#imp').onclick = () => pickFile('.json,application/json', importBackup);
