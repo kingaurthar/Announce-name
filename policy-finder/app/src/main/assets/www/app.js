@@ -134,17 +134,20 @@
     { k: 'notes', label: 'Policy notes', type: 'textarea', ph: 'Deviations, special rules…' },
     { k: 'keywords', label: 'Search keywords', ph: 'extra words you may type when searching', hint: 'Short forms help: pl, bl, lap, tw, cv, ntc…' },
   ];
+  const DECISIONS = [['', 'Info only (no fixed decision)'], ['NO', 'NO – not allowed'], ['YES', 'YES – allowed'], ['COND', 'ONLY WITH CONDITIONS']];
   const RULE_FIELDS = [
-    { k: 'title', label: 'Situation', required: true, ph: 'e.g. Customer CIBIL below 650' },
-    { k: 'keywords', label: 'Trigger words', ph: 'words you would type for this situation' },
-    { k: 'solution', label: 'Solution / what to do', type: 'textarea', required: true },
+    { k: 'title', label: 'Situation / question', required: true, ph: 'e.g. CV loan without property proof', hint: 'Write it the way you would ask. Use “without …” / “no …” for missing documents.' },
+    { k: 'decision', label: 'Decision', type: 'select', options: () => DECISIONS },
+    { k: 'solution', label: 'Reason / what to do', type: 'textarea', required: true, ph: 'e.g. Property proof of applicant or guarantor is mandatory for all CV cases.' },
+    { k: 'ref', label: 'Policy reference', ph: 'e.g. CV Policy 2026, Section 5, page 2' },
+    { k: 'keywords', label: 'Other words people may type', ph: 'e.g. truck tata 1109 ashok leyland house proof own house' },
     { k: 'productId', label: 'Linked product', type: 'select', options: productOptions },
   ];
 
   const editProduct = p => formSheet(p ? 'Edit product' : 'New product', PRODUCT_FIELDS, p || {},
     d => DB.put('products', d), p ? () => DB.del('products', p.id) : null);
-  const editRule = r => formSheet(r ? 'Edit situation' : 'New situation', RULE_FIELDS, r || {},
-    d => DB.put('rules', d), r ? () => DB.del('rules', r.id) : null);
+  const editRule = (r, prefill) => formSheet(r ? 'Edit policy rule' : 'New policy rule', RULE_FIELDS, r || prefill || {},
+    d => { delete d.sample; return DB.put('rules', d); }, r ? () => DB.del('rules', r.id) : null);
 
   // ---------- tabs ----------
   function setTab(tab) {
@@ -316,6 +319,7 @@
     });
     // Question like "can we do X without Y?" -> answer from uploaded policies
     const qa = QA.answer(query, S);
+    S.lastQa = qa ? { query, qa } : null;
     // Vehicle model + manufacturing year in the query -> instant max loan / tenure / rate
     const vq = qa && qa.verdict !== 'NOTFOUND' ? null : vehicleFromQuery(query);
     results.sort((a, b) => b.score - a.score);
@@ -347,7 +351,7 @@
       const it = res.item;
       if (res.kind === 'product') return productCard(it, terms);
       if (res.kind === 'rule') return `<div class="card tap" data-open="rule" data-id="${it.id}">
-          <div class="row"><h3>${Search.highlight(it.title, terms)}</h3><span class="badge rule">Situation</span></div>
+          <div class="row"><h3>${Search.highlight(it.title, terms)}</h3><span class="badge rule">${it.decision ? esc(VERDICT[it.decision][0]) : "Policy rule"}</span></div>
           <div class="snip">${Search.highlight(Search.snippet(it.solution, terms), terms)}</div>
           ${it.productId ? `<div class="meta" style="margin-top:4px">${esc(productName(it.productId))}</div>` : ''}</div>`;
       if (res.kind === 'grid') return `<div class="card tap" data-open="grid" data-id="${it.id}" ${res.lookup ? `data-r="${res.lookup.r}" data-c="${res.lookup.c}"` : ''}>
@@ -372,14 +376,15 @@
     const ev = a.reasons.map(r => {
       const sn = r.sn;
       const open = sn.kind === 'doc' ? `data-open="doc" data-id="${sn.id}" ${sn.page ? `data-page="${sn.page}"` : ''}` : `data-open="${sn.kind}" data-id="${sn.id}"`;
-      const src = sn.kind === 'doc' ? `📄 ${esc(sn.title)}${sn.page ? ' · page ' + sn.page : ''}` : sn.kind === 'rule' ? `💡 Situation: ${esc(sn.title)}` : `📋 ${esc(sn.title)} – ${esc(sn.field)}`;
+      const src = sn.kind === 'doc' ? `📄 ${esc(sn.title)}${sn.page ? ' · page ' + sn.page : ''}` : sn.kind === 'rule' ? `${sn.mine ? '⭐ My rule' : '💡 Rule'}: ${esc(sn.title)}${sn.ref ? ' · 📄 ' + esc(sn.ref) : ''}` : `📋 ${esc(sn.title)} – ${esc(sn.field)}`;
       return `<div class="ev tap" ${open}><div class="q">“${Search.highlight(sn.text, terms)}”</div><div class="src">${src}${r.v ? ` · <b class="v-${r.v}">${esc(r.why)}</b>` : ''}${sn.sample ? ' · SAMPLE' : ''}</div></div>`;
     }).join('');
     return `<div class="answer v-${a.verdict}">
       <div class="verdict">${big}</div><div class="vsub">${sub}</div>
       ${a.lacking.length ? `<div class="meta">Missing: <b>${esc(a.lacking.join(' '))}</b></div>` : ''}
       ${ev ? `<div class="why">Why – from your documents:</div>${ev}` : `<div class="meta" style="margin-top:6px">Upload the policy PDF / photo that covers this. For photos and scanned PDFs, run More → “Read text from photos &amp; scanned PDFs”.</div>`}
-      <div class="disc">Read automatically from your files. Always confirm with the full circular before sanction.</div>
+      <div class="disc">${a.fromRule ? 'Decision from your saved policy rule.' : 'Read automatically from your files. Always confirm with the full circular before sanction.'}</div>
+      <button class="btn secondary small" data-saverule style="margin-top:8px">${a.fromRule ? '✎ Change this rule' : '⭐ Save my decision for this situation'}</button>
     </div>`;
   }
 
@@ -395,6 +400,20 @@
 
   // global click delegation for cards
   document.addEventListener('click', e => {
+    if (e.target.closest('[data-saverule]')) {
+      const last = S.lastQa; if (!last) return;
+      if (last.qa.fromRule) { editRule(last.qa.fromRule); return; }
+      const lack = last.qa.lacking || [];
+      const firstDoc = (last.qa.reasons || []).find(r => r.sn.kind === 'doc');
+      editRule(null, {
+        title: last.query.replace(/\s*\?+\s*$/, ''),
+        decision: ['NO', 'YES', 'COND'].includes(last.qa.verdict) ? last.qa.verdict : '',
+        solution: last.qa.reasons && last.qa.reasons[0] && last.qa.reasons[0].v ? last.qa.reasons[0].sn.text : '',
+        ref: firstDoc ? firstDoc.sn.title + (firstDoc.sn.page ? ', page ' + firstDoc.sn.page : '') : '',
+        keywords: [...new Set([...(last.qa.topic || []), ...lack])].join(' '),
+      });
+      return;
+    }
     const el = e.target.closest('[data-open]');
     if (!el) return;
     const id = el.dataset.id;
@@ -450,15 +469,18 @@
   }
 
   function openRule(r0) {
-    openSheet('Situation', (body, actions) => {
+    openSheet('Policy rule', (body, actions) => {
       const r = S.rules.find(x => x.id === r0.id);
       if (!r) { closeSheet(); return; }
       stack[stack.length - 1].isDetail = true;
       actionBtn(actions, ICON.edit, 'Edit', () => editRule(r));
       const p = S.products.find(x => x.id === r.productId);
       body.innerHTML = `${r.sample ? '<div class="notice">SAMPLE situation – edit or delete it.</div>' : ''}
-        <div class="card"><h3>${esc(r.title)}</h3><div class="snip pre" style="font-size:15px">${esc(r.solution)}</div>
-        ${r.keywords ? `<div class="meta" style="margin-top:8px">Triggers: ${esc(r.keywords)}</div>` : ''}</div>
+        <div class="card"><h3>${esc(r.title)}</h3>
+        ${r.decision ? `<div class="answer v-${r.decision}" style="margin:8px 0;box-shadow:none"><div class="verdict">${esc(VERDICT[r.decision][0])}</div><div class="vsub">${esc(VERDICT[r.decision][1])}</div></div>` : ''}
+        <div class="snip pre" style="font-size:15px">${esc(r.solution)}</div>
+        ${r.ref ? `<div class="meta" style="margin-top:8px">📄 ${esc(r.ref)}</div>` : ''}
+        ${r.keywords ? `<div class="meta" style="margin-top:4px">Also matches: ${esc(r.keywords)}</div>` : ''}</div>
         ${p ? productCard(p) : ''}`;
     });
   }
@@ -854,10 +876,10 @@
   // ---------- MORE ----------
   function renderMore() {
     view.innerHTML = `
-      <div class="section-title">Situations → Solutions <span>${S.rules.length}</span></div>
-      <div class="hint" style="margin:0 4px 8px">Save common cases (e.g. “CIBIL below 650”, “No ITR”) with the answer. They show on top when you search.</div>
-      ${S.rules.map(r => `<div class="card tap" data-open="rule" data-id="${r.id}"><h3>${esc(r.title)}</h3><div class="snip">${esc(Search.snippet(r.solution, [], 120))}</div></div>`).join('')}
-      <button class="btn secondary block" id="addRule">+ Add situation</button>
+      <div class="section-title">My policy rules (fixed decisions) <span>${S.rules.length}</span></div>
+      <div class="hint" style="margin:0 4px 8px">Add a new policy yourself: situation + decision (NO / YES / conditions) + reason. When a question matches, the app gives exactly this decision first.</div>
+      <button class="btn block" id="addRule" style="margin-bottom:8px">+ Add new policy rule</button>
+      ${S.rules.map(r => `<div class="card tap" data-open="rule" data-id="${r.id}"><div class="row"><h3>${esc(r.title)}</h3>${r.decision ? `<span class="badge rule">${esc(VERDICT[r.decision][0])}</span>` : ''}</div><div class="snip">${esc(Search.snippet(r.solution, [], 120))}</div></div>`).join('')}
 
       <div class="section-title">Tools</div>
       <button class="btn secondary block" id="emi">EMI / PF / LTV calculator</button>

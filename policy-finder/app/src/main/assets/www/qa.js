@@ -112,7 +112,41 @@ const QA = (() => {
   }
 
   /** Main entry: returns null if not a question, else { verdict, reasons:[{sent, v, why}], topic, lacking } */
+  /*
+   * Your own saved rules with a fixed decision win over everything else.
+   * A rule matches when most of its situation words (title + trigger words) are in the question,
+   * and "without X" rules only match questions that are also missing X.
+   */
+  function ruleMatch(query, S) {
+    const qLack = lackingTerms(query);
+    const qText = query + ' ' + qLack.join(' ');
+    let best = null;
+    S.rules.filter(r => r.decision).forEach(r => {
+      const rTerms = Search.queryTerms(r.title).filter(t => !FILLER.has(t));
+      if (!rTerms.length) return;
+      const byTitle = Search.scoreItem(rTerms, [{ text: qText, w: 1 }]);
+      const kTerms = Search.queryTerms(r.keywords || '').filter(t => !FILLER.has(t));
+      const byKeys = kTerms.length ? Search.scoreItem(kTerms, [{ text: qText, w: 1 }]) : { matched: 0, coverage: 0 };
+      const rLack = lackingTerms(r.title + ' ');
+      if (rLack.length && !(qLack.length && (mentions(rLack, qLack.join(' ')) || mentions(qLack, r.keywords || '')))) return;   // rule is about "without X"
+      if (!rLack.length && qLack.length && mentions(qLack, r.title) && !/\b(no|without|not)\b/i.test(r.title)) return; // rule is "with X", question "without X"
+      const strength = Math.max(byTitle.coverage, byKeys.matched >= 2 ? byKeys.coverage : 0) + (byKeys.matched ? 0.1 : 0);
+      if (strength >= 0.6 && (!best || strength > best.strength)) best = { rule: r, strength };
+    });
+    return best;
+  }
+
   function answer(query, S) {
+    const rm = ruleMatch(query, S);
+    const res = evidence(query, S);
+    if (!rm) return res;
+    const r = rm.rule;
+    const ruleReason = { sn: { kind: 'rule', id: r.id, title: r.title, text: r.solution || r.title, ref: r.ref, mine: true }, v: r.decision, why: 'your saved policy rule', score: 99 };
+    const base = res || { reasons: [], topic: Search.queryTerms(query).filter(t => !FILLER.has(t)), lacking: lackingTerms(query) };
+    return { ...base, verdict: r.decision, fromRule: r, reasons: [ruleReason, ...base.reasons.filter(x => x.sn.id !== r.id).slice(0, 3)] };
+  }
+
+  function evidence(query, S) {
     if (!isQuestion(query)) return null;
     const lacking = lackingTerms(query);
     const topic = Search.queryTerms(query).filter(t => !FILLER.has(t));

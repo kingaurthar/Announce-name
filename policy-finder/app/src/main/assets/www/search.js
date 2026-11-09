@@ -8,7 +8,7 @@ const Search = (() => {
     ['hl', 'home', 'housing'],
     ['gl', 'gold'],
     ['al', 'auto', 'car', 'vehicle', 'fourwheeler', '4w'],
-    ['tw', '2w', 'twowheeler', 'bike', 'scooter', 'motorcycle'],
+    ['tw', '2w', 'twowheeler', 'wheeler', 'bike', 'scooter', 'motorcycle'],
     ['cv', 'commercial', 'truck', 'tipper', 'lcv', 'hcv'],
     ['ce', 'construction', 'equipment', 'machinery'],
     ['cd', 'consumer', 'durable', 'tv', 'mobile', 'fridge'],
@@ -30,6 +30,7 @@ const Search = (() => {
     ['ntc', 'new', 'nocredit', 'firsttime'],
   ];
   SYN_GROUPS.push(
+    ['rc', 'registration', 'rcbook'],
     ['proof', 'profe', 'prof', 'proff', 'prooff', 'evidence'],
     ['property', 'house', 'residence', 'ownership', 'owned', 'own', 'prop', 'propery', 'proprty'],
     ['rented', 'rent', 'tenant', 'rental'],

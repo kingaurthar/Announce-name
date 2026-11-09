@@ -12,6 +12,10 @@ Offline policy finder for NBFC field / branch use. Everything is stored on the p
   line from your uploaded policy (“Property proof … is mandatory for all CV cases”) with document name and page.
   Also compares limits: `pl for 70 year old?` (age 21–58 → NO), `tw loan with cibil 620?`.
   Works fully offline from your PDFs, photos (read by OCR), product notes and saved situations.
+- **Add your own policy rule with a fixed decision** – *More → + Add new policy rule*: situation
+  (e.g. “Used car loan without RC”), decision (NO / YES / ONLY WITH CONDITIONS), reason, and policy reference.
+  When a question matches, the app gives exactly that decision first (⭐ My rule). Every answer also has a
+  **⭐ Save my decision for this situation** button, so you can lock in or correct an answer with one tap.
 - **Reads text from photos & scanned PDFs (OCR, offline)** – done automatically on upload; for older files use
   *More → Read text from photos & scanned PDFs*. Each file shows the text it read, so you can check it.
 - **Vehicle loan check** – choose a vehicle model + manufacturing year + tenure and get the **max loan amount, max tenure, rate (ROI), LTV and EMI**.
