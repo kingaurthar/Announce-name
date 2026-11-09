@@ -72,7 +72,13 @@
 
 All three must be the **same actor**. Do not pitch-shift.
 
-### 2.4 Master Character Reference Prompt (generate the model sheet first, then lock it)
+### 2.4 Model Sheet
+
+![Rahul character model sheet](./rahul_model_sheet.png)
+
+The vector source is [`rahul_model_sheet.svg`](./rahul_model_sheet.svg). Use the PNG as `REF_RAHUL_FRONT` / `REF_RAHUL_34` reference input, or import the SVG into Illustrator / Moho / After Effects to build the cut-out rig.
+
+### 2.5 Master Character Reference Prompt (generate the model sheet first, then lock it)
 
 ```
 Character model sheet, Bengali 2D flat vector cartoon, limited cut-out animation style,
