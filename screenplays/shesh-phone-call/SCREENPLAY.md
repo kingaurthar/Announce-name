@@ -901,9 +901,18 @@ All 17 shots, drawn with the locked Rahul rig on the bedroom and exterior plates
 
 ## 12. ANIMATIC
 
-▶️ [`animatic.mp4`](./animatic.mp4): 90.0 s · 1080×1920 (9:16) · 24 fps · H.264 + AAC stereo · −15.5 LUFS, true peak −2.3 dBFS (no clipping)
+▶️ [`animatic.mp4`](./animatic.mp4): 90.0 s · 1080×1920 (9:16) · 24 fps · H.264 + AAC stereo · −15.2 LUFS, true peak −2.0 dBFS (no clipping)
 
 - Built from the 17 clean storyboard frames at the exact §5 shot durations, with the camera moves simulated: push-ins, whip-pans with motion blur, the Shot 9 snap-zoom, the phone shake in Shot 12, and the arc and lightning reveal in Shot 16. Shot 17 runs split frame → glitch → black card → the 2:17 phone lighting up again for the loop.
-- Bengali subtitles are burned in from `subtitles_bn.srt`, colour-coded by speaker.
+- Bengali subtitles are burned in from `subtitles_bn.srt`, colour-coded by speaker and retimed to follow the scratch voice.
 - **Scratch sound bed (synthesized):** rain, ringtone and vibration, heartbeat pulse, D-minor drone, thunder, disconnect beeps, clock ticks, knocks, bolt, stinger, shehnai-like drone, tinnitus, glitch and the final piano note, all on the §6 cue timings.
-- **No dialogue audio yet:** the dialogue is carried by subtitles. Record the V1/V2/V3 scratch voice (one actor, §7) and lay it over this file to check performance timing before final animation.
+- **Scratch voices (synthesized):** all 19 spoken lines plus the Shot 16 gasp, voiced with the open-source Coqui Bengali VITS male model run offline. As §2.3 specifies, one voice plays every Rahul, with the §7 treatments:
+  - **V1 (Rahul in the room):** dry and close; the whispered lines (1, 9, 13) are breathier.
+  - **V2 (the caller):** telephone band-pass, slight bit-crush and line hiss, placed centre-left.
+  - **V3 (behind the door):** muffled through wood, 30 ms doubling, room reverb, panned toward the door.
+  - **Line 18:** moves from the phone to a dry voice behind-right, 120 ms later (best on earphones).
+  - **The final question:** spoken in unison by V1 and V2.
+  - Each line is fitted to its slot, and the sound bed ducks about 6 dB under the dialogue.
+  - Line 8 starts 0.4 s later (00:24.8) so it doesn't overlap Line 7.
+  - The voice-only track is [`animatic_voice_stem.m4a`](./animatic_voice_stem.m4a), for re-editing.
+- **Scratch only:** the TTS voice is clear but synthetic and flat in emotion. Replace it with the real actor (§7) before release; the timings above are a guide for the recording session.
