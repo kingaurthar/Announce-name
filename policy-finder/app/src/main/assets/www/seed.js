@@ -61,3 +61,52 @@ const SEED = {
     { id: 's-r4', sample: true, title: 'Self-employed without ITR', keywords: 'self employed no itr income proof cash salary banking', solution: 'SAMPLE: Business Loan needs ITR 2 yrs. Consider secured products (LAP, Gold Loan, vehicle) with surrogate income programs as per policy.', productId: 's-bl' },
   ],
 };
+
+/*
+ * SAMPLE vehicle schemes (age bands) and vehicle models.
+ * Age = current year − manufacturing year.
+ * valuePct = vehicle value as % of new price for age 0,1,2,… (used when a model has no year-wise value).
+ * Prices are PLACEHOLDERS – replace with your valuation master.
+ */
+SEED.schemes = [
+  {
+    id: 's-sc-car', sample: true, name: 'Car', productId: 's-uc', maxAge: 10,
+    valuePct: '90,80,70,62,55,48,42,36,31,27,23',
+    bands: [
+      { from: 0, to: 3, ltv: 90, roi: 13, tenure: 60, maxLoan: '' },
+      { from: 4, to: 5, ltv: 85, roi: 14, tenure: 60, maxLoan: '' },
+      { from: 6, to: 7, ltv: 75, roi: 15.5, tenure: 48, maxLoan: '' },
+      { from: 8, to: 10, ltv: 65, roi: 17, tenure: 36, maxLoan: '' },
+    ],
+    notes: 'SAMPLE. Vehicle age at loan maturity must not exceed 10 years.'
+  },
+  {
+    id: 's-sc-tw', sample: true, name: 'Two Wheeler', productId: 's-tw', maxAge: 8,
+    valuePct: '95,80,70,60,50,42,35,30,25',
+    bands: [
+      { from: 0, to: 0, ltv: 95, roi: 12, tenure: 48, maxLoan: '' },
+      { from: 1, to: 3, ltv: 80, roi: 16, tenure: 36, maxLoan: '' },
+      { from: 4, to: 6, ltv: 70, roi: 20, tenure: 24, maxLoan: '' },
+    ],
+    notes: 'SAMPLE.'
+  },
+  {
+    id: 's-sc-cv', sample: true, name: 'Commercial Vehicle', productId: 's-cv', maxAge: 15,
+    valuePct: '90,80,70,62,55,48,42,37,33,29,26,23,20',
+    bands: [
+      { from: 0, to: 0, ltv: 90, roi: 13, tenure: 60, maxLoan: '' },
+      { from: 1, to: 5, ltv: 80, roi: 15, tenure: 48, maxLoan: '' },
+      { from: 6, to: 10, ltv: 70, roi: 17, tenure: 36, maxLoan: '' },
+      { from: 11, to: 12, ltv: 60, roi: 19, tenure: 24, maxLoan: '' },
+    ],
+    notes: 'SAMPLE.'
+  },
+];
+SEED.vehicles = [
+  { id: 's-v1', sample: true, name: 'Maruti Suzuki Swift VXi', scheme: 'Car', price: '700000', yearValues: '2024=560000, 2022=470000', keywords: 'swift hatchback' },
+  { id: 's-v2', sample: true, name: 'Hyundai Creta SX', scheme: 'Car', price: '1500000', yearValues: '', keywords: 'creta suv' },
+  { id: 's-v3', sample: true, name: 'Honda Activa 6G', scheme: 'Two Wheeler', price: '85000', yearValues: '', keywords: 'activa scooter' },
+  { id: 's-v4', sample: true, name: 'Hero Splendor Plus', scheme: 'Two Wheeler', price: '80000', yearValues: '', keywords: 'splendor bike' },
+  { id: 's-v5', sample: true, name: 'Tata Ace Gold', scheme: 'Commercial Vehicle', price: '600000', yearValues: '', keywords: 'ace chota hathi scv' },
+  { id: 's-v6', sample: true, name: 'Mahindra Bolero Pik-Up', scheme: 'Commercial Vehicle', price: '950000', yearValues: '', keywords: 'bolero pickup pik up' },
+];

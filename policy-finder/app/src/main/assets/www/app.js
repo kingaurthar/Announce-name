@@ -9,7 +9,7 @@
 
   if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'lib/pdf.worker.min.js';
 
-  const S = { products: [], docs: [], grids: [], rules: [], tab: 'search', query: '', cat: '' };
+  const S = { products: [], docs: [], grids: [], rules: [], vehicles: [], schemes: [], tab: 'search', query: '', cat: '' };
 
   const ICON = {
     search: '<svg viewBox="0 0 24 24"><path d="M10 2a8 8 0 0 1 6.3 12.9l5.4 5.4-1.4 1.4-5.4-5.4A8 8 0 1 1 10 2zm0 2a6 6 0 1 0 0 12 6 6 0 0 0 0-12z"/></svg>',
@@ -37,7 +37,14 @@
       for (const r of SEED.rules) await DB.put('rules', { ...r });
       await DB.put('meta', { id: 'seeded', at: Date.now() });
     }
-    [S.products, S.docs, S.grids, S.rules] = await Promise.all(['products', 'docs', 'grids', 'rules'].map(DB.all));
+    if (!(await DB.get('meta', 'seeded2'))) {
+      for (const x of SEED.schemes) await DB.put('schemes', JSON.parse(JSON.stringify(x)));
+      for (const x of SEED.vehicles) await DB.put('vehicles', { ...x });
+      await DB.put('meta', { id: 'seeded2', at: Date.now() });
+    }
+    [S.products, S.docs, S.grids, S.rules, S.vehicles, S.schemes] = await Promise.all(['products', 'docs', 'grids', 'rules', 'vehicles', 'schemes'].map(DB.all));
+    S.vehicles.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    S.schemes.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     S.products.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     S.grids.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     S.docs.sort((a, b) => (b.created || 0) - (a.created || 0));
@@ -160,7 +167,7 @@
   function renderSearch() {
     view.innerHTML = `
       <div class="searchbox">
-        <div class="field">${ICON.search}<input id="q" type="search" autocomplete="off" placeholder="Type product or situation… e.g. tw cibil 720 36 months" value="${esc(S.query)}"></div>
+        <div class="field">${ICON.search}<input id="q" type="search" autocomplete="off" placeholder="Product, situation or vehicle… e.g. swift 2019 36 months" value="${esc(S.query)}"></div>
         <div class="chips" id="cats"></div>
       </div>
       <div id="results"></div>`;
@@ -307,17 +314,19 @@
       ]);
       if (r.score > 0.4) results.push({ kind: 'doc', item: d, ...r, page: bestPage(d, terms) });
     });
+    // Vehicle model + manufacturing year in the query -> instant max loan / tenure / rate
+    const vq = vehicleFromQuery(query);
     results.sort((a, b) => b.score - a.score);
 
-    if (!results.length) {
+    if (!results.length && !vq) {
       out.innerHTML = emptyBox(`No match for “${esc(query)}”. Try fewer or different words (e.g. product short form: pl, bl, lap, tw).`);
       return;
     }
-    const top = results[0];
-    let html = '';
+    const top = results[0] || { score: 0 };
+    let html = vq ? quoteBox(vq.vehicle, vq.quote, true) : '';
     // Instant answer box: best LTV grid lookup (if reasonably relevant), else top situation
     const gridHit = results.find(x => x.kind === 'grid' && x.lookup && x.score >= top.score * 0.4);
-    if (gridHit) {
+    if (vq) { /* vehicle answer already shown */ } else if (gridHit) {
       const g = gridHit.item, lk = gridHit.lookup;
       html += `<div class="result-box tap" data-open="grid" data-id="${g.id}" data-r="${lk.r}" data-c="${lk.c}">
         <div class="small">${esc(g.name)}</div>
@@ -330,7 +339,7 @@
         <div class="pre" style="margin-top:4px">${Search.highlight(top.item.solution, terms)}</div>
       </div>`;
     }
-    html += `<div class="section-title">${results.length} result${results.length > 1 ? 's' : ''}</div>`;
+    if (results.length) html += `<div class="section-title">${results.length} result${results.length > 1 ? 's' : ''}</div>`;
     html += results.slice(0, 60).map(res => {
       const it = res.item;
       if (res.kind === 'product') return productCard(it, terms);
@@ -367,6 +376,9 @@
     else if (kind === 'rule') { const r = S.rules.find(x => x.id === id); if (r) openRule(r); }
     else if (kind === 'grid') { const g = S.grids.find(x => x.id === id); if (g) openGrid(g, el.dataset.r != null ? { r: +el.dataset.r, c: +el.dataset.c } : null); }
     else if (kind === 'doc') { const d = S.docs.find(x => x.id === id); if (d) openDoc(d, +el.dataset.page || 1); }
+    else if (kind === 'vcalc') openVehicleCalc({ vehicleId: id, year: +el.dataset.year || null, tenure: +el.dataset.tenure || null });
+    else if (kind === 'scheme') { const sc = S.schemes.find(x => x.id === id); if (sc) editScheme(sc); }
+    else if (kind === 'vehicle') { const v = S.vehicles.find(x => x.id === id); if (v) editVehicle(v); }
   });
 
   // ---------- PRODUCTS ----------
@@ -605,11 +617,20 @@
 
   // ---------- GRIDS ----------
   function renderGrids() {
-    view.innerHTML = `<div class="hint" style="margin:0 4px 8px">Make a grid for LTV by tenure (rows = CIBIL / vehicle age / property type…, columns = tenure). Tip: copy a table from Excel and paste it in the grid editor.</div>
+    view.innerHTML = `
+      <button class="btn block" id="vcalcBtn" style="padding:14px">🚗 Vehicle loan check — model + year + tenure</button>
+      <div class="section-title">Vehicle schemes (age bands) <span>${S.schemes.length}</span></div>
+      ${S.schemes.map(sc => `<div class="card tap" data-open="scheme" data-id="${sc.id}"><div class="row"><h3>${esc(sc.name)}</h3><span class="badge grid">${(sc.bands || []).length} bands</span></div><div class="meta">${esc(productName(sc.productId) || '')}${sc.maxAge ? ` · max age at maturity ${esc(sc.maxAge)} yrs` : ''}</div></div>`).join('')}
+      <div class="btn-row"><button class="btn secondary small" id="addScheme">+ Scheme</button><button class="btn secondary small" id="vList">Vehicle models (${S.vehicles.length})</button><button class="btn secondary small" id="addVeh">+ Model</button></div>
+      <div class="hint" style="margin:10px 4px 8px">Make a grid for LTV by tenure (rows = CIBIL / vehicle age / property type…, columns = tenure). Tip: copy a table from Excel and paste it in the grid editor.</div>
       <div class="section-title">LTV / Tenure grids <span>${S.grids.length}</span></div>
       ${S.grids.length ? S.grids.map(g => `<div class="card tap" data-open="grid" data-id="${g.id}"><div class="row"><h3>${esc(g.name)}</h3><span class="badge grid">${g.rows.length}×${g.cols.length}</span></div><div class="meta">${esc(productName(g.productId) || 'No product')} · ${esc(g.rowLabel || '')} × ${esc(g.colLabel || '')}</div></div>`).join('') : emptyBox('No grids yet. Tap + to create one.')}
       <div style="height:70px"></div>`;
     fab(() => editGrid(null, ''), 'New grid');
+    $('#vcalcBtn').onclick = () => openVehicleCalc({});
+    $('#addScheme').onclick = () => editScheme(null);
+    $('#addVeh').onclick = () => editVehicle(null);
+    $('#vList').onclick = openVehicleList;
   }
 
   function gridTable(g, opts = {}) {
@@ -774,13 +795,13 @@
     $('#csvT').onclick = () => saveText('products-template.csv', 'name,category,rate,pf,doc,other,amount,tenure,eligibility,notes,keywords\n"Personal Loan","Unsecured","14% - 24%","Up to 3% + GST","Rs 500 + GST","","","12-60 months","","","pl salaried"\n');
     $('#delSample').onclick = async () => {
       if (!confirm('Delete all SAMPLE products, grids and situations?')) return;
-      for (const st of ['products', 'grids', 'rules']) for (const x of await DB.all(st)) if (x.sample) await DB.del(st, x.id);
+      for (const st of ['products', 'grids', 'rules', 'vehicles', 'schemes']) for (const x of await DB.all(st)) if (x.sample) await DB.del(st, x.id);
       await loadAll(); renderTab(); toast('Sample data deleted');
     };
     $('#wipe').onclick = async () => {
       if (!confirm('Delete ALL products, policies, grids and situations from this phone?')) return;
       if (!confirm('Are you sure? Export a backup first if you need it.')) return;
-      for (const st of ['products', 'docs', 'files', 'grids', 'rules']) await DB.clear(st);
+      for (const st of ['products', 'docs', 'files', 'grids', 'rules', 'vehicles', 'schemes']) await DB.clear(st);
       await loadAll(); renderTab(); toast('All data deleted');
     };
   }
@@ -803,7 +824,7 @@
   async function exportBackup() {
     toast('Preparing backup…');
     const data = { app: 'policy-finder', version: 1, exported: new Date().toISOString() };
-    for (const st of ['products', 'grids', 'rules', 'docs']) data[st] = await DB.all(st);
+    for (const st of ['products', 'grids', 'rules', 'docs', 'vehicles', 'schemes']) data[st] = await DB.all(st);
     const files = await DB.all('files');
     data.files = [];
     for (const f of files) data.files.push({ id: f.id, name: f.name, type: f.type, data: await blobToB64(f.blob) });
@@ -815,7 +836,7 @@
       const data = JSON.parse(await file.text());
       if (!data || (data.app !== 'policy-finder' && !data.products)) throw new Error('Not a Policy Finder backup');
       let n = 0;
-      for (const st of ['products', 'grids', 'rules', 'docs']) for (const x of (data[st] || [])) { await DB.put(st, x); n++; }
+      for (const st of ['products', 'grids', 'rules', 'docs', 'vehicles', 'schemes']) for (const x of (data[st] || [])) { await DB.put(st, x); n++; }
       for (const f of (data.files || [])) await DB.put('files', { id: f.id, name: f.name, type: f.type, blob: b64ToBlob(f.data, f.type) });
       await loadAll(); renderTab(); toast(`Imported ${n} items`);
     } catch (e) { toast('Import failed: ' + e.message, 4000); }
@@ -848,6 +869,238 @@
       await DB.put('products', existing ? { ...existing, ...o } : o); n++;
     }
     await loadAll(); renderTab(); toast(`${n} products imported`);
+  }
+
+
+  // ---------- VEHICLE LOAN CHECK ----------
+  const THIS_YEAR = new Date().getFullYear();
+  const num = v => { const n = parseFloat(String(v == null ? '' : v).replace(/[,₹\s]/g, '')); return isFinite(n) ? n : NaN; };
+  function parseYearValues(txt) {
+    const m = {};
+    String(txt || '').split(/[,;\n]+/).forEach(part => { const x = part.split(/[=:]/); if (x.length === 2) { const y = parseInt(x[0], 10), v = num(x[1]); if (y && isFinite(v)) m[y] = v; } });
+    return m;
+  }
+  const schemeFor = v => v && S.schemes.find(sc => (sc.name || '').toLowerCase() === (v.scheme || '').toLowerCase());
+  const calcEmi = (A, R, T) => { const r = R / 1200; return T ? (r ? A * r * Math.pow(1 + r, T) / (Math.pow(1 + r, T) - 1) : A / T) : 0; };
+
+  /** Core rule engine: vehicle (or manual value) + mfg year + tenure -> max loan, tenure, rate. */
+  function vehicleQuote({ vehicle, scheme, year, tenure, value }) {
+    scheme = scheme || schemeFor(vehicle);
+    const q = { ok: false, year, age: null, reasons: [] };
+    if (!scheme) { q.reasons.push(vehicle ? `No scheme named “${vehicle.scheme || ''}”. Set the model's scheme.` : 'Choose a scheme.'); return q; }
+    q.scheme = scheme;
+    if (!year) { q.reasons.push('Enter manufacturing year.'); return q; }
+    const age = Math.max(0, THIS_YEAR - year); q.age = age;
+    const band = (scheme.bands || []).find(b => age >= num(b.from) && age <= num(b.to));
+    if (!band) { q.reasons.push(`Vehicle age ${age} yr${age === 1 ? '' : 's'} is outside the ${scheme.name} policy (not eligible).`); return q; }
+    q.band = band;
+    // valuation
+    let val = num(value), src = 'Entered value';
+    if (!isFinite(val) && vehicle) {
+      const yv = parseYearValues(vehicle.yearValues);
+      if (yv[year]) { val = yv[year]; src = `Valuation for ${year}`; }
+      else {
+        const price = num(vehicle.price);
+        const pcts = String(scheme.valuePct || '').split(/[,\s]+/).map(num).filter(isFinite);
+        if (isFinite(price)) {
+          if (pcts.length) { const pct = pcts[Math.min(age, pcts.length - 1)]; val = price * pct / 100; src = `${pct}% of new price ₹${price.toLocaleString('en-IN')} (age ${age})`; }
+          else { val = price; src = 'Model price'; }
+        }
+      }
+    }
+    if (!isFinite(val) || val <= 0) { q.reasons.push('No vehicle value. Enter value or add price to the model.'); return q; }
+    q.value = val; q.valueSrc = src;
+    q.ltv = num(band.ltv); q.roi = num(band.roi);
+    let maxLoan = val * (isFinite(q.ltv) ? q.ltv : 100) / 100;
+    const cap = num(band.maxLoan);
+    if (isFinite(cap) && cap > 0 && cap < maxLoan) { maxLoan = cap; q.capped = true; }
+    q.maxLoan = Math.floor(maxLoan / 1000) * 1000;
+    const bandTen = num(band.tenure);
+    const ageTen = isFinite(num(scheme.maxAge)) ? (num(scheme.maxAge) - age) * 12 : Infinity;
+    q.maxTenure = Math.min(isFinite(bandTen) ? bandTen : Infinity, ageTen);
+    q.tenureLimitedByAge = ageTen < bandTen;
+    if (!isFinite(q.maxTenure)) q.maxTenure = tenure || 0;
+    if (q.maxTenure <= 0) { q.reasons.push(`Vehicle already reaches max age (${scheme.maxAge} yrs) – no tenure possible.`); return q; }
+    q.tenure = tenure ? Math.min(tenure, q.maxTenure) : q.maxTenure;
+    if (tenure && tenure > q.maxTenure) q.reasons.push(`Asked ${tenure} months, but max allowed is ${q.maxTenure} months.`);
+    q.emi = calcEmi(q.maxLoan, isFinite(q.roi) ? q.roi : 0, q.tenure);
+    q.product = S.products.find(p => p.id === scheme.productId);
+    q.ok = true;
+    return q;
+  }
+
+  function quoteBox(vehicle, q, tappable) {
+    const title = esc(vehicle ? vehicle.name : (q.scheme ? q.scheme.name : 'Vehicle'));
+    const attrs = tappable && vehicle ? `class="result-box tap" data-open="vcalc" data-id="${vehicle.id}" data-year="${q.year || ''}" data-tenure="${q.tenure || ''}"` : 'class="result-box"';
+    if (!q.ok) return `<div ${attrs}><div class="small">${title}${q.year ? ' · ' + q.year : ''}</div><div style="font-weight:700;margin-top:4px">Not eligible / need more info</div><div class="small">${q.reasons.map(esc).join('<br>')}</div></div>`;
+    return `<div ${attrs}>
+      <div class="small">${title} · ${q.year} model · age ${q.age} yr${q.age === 1 ? '' : 's'}${vehicle && vehicle.sample ? ' · SAMPLE' : ''}</div>
+      <div class="big">${fmtINR(q.maxLoan)}</div>
+      <div class="small">Max loan amount</div>
+      <div class="kv" style="margin-top:8px">
+        <div style="background:rgba(255,255,255,.14)"><span style="color:#cfe6ef">Rate</span><b>${isFinite(q.roi) ? q.roi + '%' : '—'}</b></div>
+        <div style="background:rgba(255,255,255,.14)"><span style="color:#cfe6ef">Max tenure</span><b>${q.maxTenure} m</b></div>
+        <div style="background:rgba(255,255,255,.14)"><span style="color:#cfe6ef">LTV</span><b>${isFinite(q.ltv) ? q.ltv + '%' : '—'}</b></div>
+      </div>
+      <div class="small" style="margin-top:8px">EMI ${fmtINR(q.emi)} for ${q.tenure} months · Value ${fmtINR(q.value)} (${esc(q.valueSrc)})${q.capped ? ' · capped by band max loan' : ''}${q.tenureLimitedByAge ? ` · tenure limited by max vehicle age ${esc(q.scheme.maxAge)} yrs` : ''}</div>
+      ${q.reasons.length ? `<div class="small" style="margin-top:4px;color:#ffd58a">${q.reasons.map(esc).join('<br>')}</div>` : ''}
+    </div>`;
+  }
+
+  function vehicleFromQuery(query) {
+    if (!S.vehicles.length) return null;
+    const ym = query.match(/\b(19[89]\d|20\d\d)\b/);
+    if (!ym) return null;
+    const year = +ym[1];
+    const rest = query.replace(ym[0], ' ');
+    let tenure = null;
+    const tm = rest.match(/(\d{1,3})\s*(m|mo|mon|month|months)\b/i) || rest.match(/(\d{1,2})\s*(y|yr|yrs|year|years)\b/i);
+    if (tm) tenure = /^y/i.test(tm[2]) ? +tm[1] * 12 : +tm[1];
+    else { const bare = rest.match(/\b(\d{1,3})\b/); if (bare && +bare[1] >= 6 && +bare[1] <= 120) tenure = +bare[1]; }
+    const terms = Search.queryTerms(rest).filter(t => !/^\d/.test(t) && !['month', 'months', 'm', 'yr', 'yrs', 'year', 'years', 'model', 'mfg', 'tenure', 'max', 'amount', 'rate', 'ltv'].includes(t));
+    if (!terms.length) return null;
+    let best = null;
+    S.vehicles.forEach(v => {
+      const r = Search.scoreItem(terms, [{ text: v.name, w: 5 }, { text: v.keywords, w: 4 }]);
+      if (r.matched && (!best || r.score > best.score)) best = { v, score: r.score };
+    });
+    if (!best) return null;
+    return { vehicle: best.v, quote: vehicleQuote({ vehicle: best.v, year, tenure }) };
+  }
+
+  function openVehicleCalc(init) {
+    openSheet('Vehicle loan check', body => {
+      const v0 = S.vehicles.find(v => v.id === init.vehicleId);
+      const years = []; for (let y = THIS_YEAR; y >= THIS_YEAR - 25; y--) years.push(y);
+      body.innerHTML = `
+        <label class="f">Vehicle model</label>
+        <input class="input" id="vM" list="vModels" placeholder="Type model e.g. Swift, Activa, Ace" value="${esc(v0 ? v0.name : '')}" autocomplete="off">
+        <datalist id="vModels">${S.vehicles.map(v => `<option value="${esc(v.name)}">`).join('')}</datalist>
+        <div class="two">
+          <div><label class="f">Manufacturing year</label><select class="input" id="vY"><option value="">—</option>${years.map(y => `<option ${y === init.year ? 'selected' : ''}>${y}</option>`).join('')}</select></div>
+          <div><label class="f">Tenure wanted (months)</label><input class="input" id="vT" inputmode="numeric" placeholder="blank = max" value="${init.tenure || ''}"></div>
+        </div>
+        <details style="margin-top:10px"><summary class="meta">Model not in list? Enter value &amp; scheme</summary>
+          <div class="two">
+            <div><label class="f">Scheme</label><select class="input" id="vS"><option value="">(from model)</option>${S.schemes.map(sc => `<option value="${sc.id}">${esc(sc.name)}</option>`).join('')}</select></div>
+            <div><label class="f">Vehicle value (₹)</label><input class="input" id="vV" inputmode="decimal" placeholder="valuation"></div>
+          </div>
+        </details>
+        <div id="vOut" style="margin-top:12px"></div>
+        <div id="vBand"></div>`;
+      const calc = () => {
+        const name = $('#vM', body).value.trim().toLowerCase();
+        let vehicle = S.vehicles.find(v => v.name.toLowerCase() === name);
+        if (!vehicle && name.length >= 2) {
+          const terms = Search.queryTerms(name);
+          let best = null;
+          S.vehicles.forEach(v => { const r = Search.scoreItem(terms, [{ text: v.name, w: 5 }, { text: v.keywords, w: 4 }]); if (r.coverage === 1 && (!best || r.score > best.score)) best = { v, score: r.score }; });
+          vehicle = best && best.v;
+        }
+        const scId = $('#vS', body).value;
+        const scheme = scId ? S.schemes.find(x => x.id === scId) : null;
+        const year = +$('#vY', body).value || null;
+        const tenure = +$('#vT', body).value || null;
+        const value = $('#vV', body).value;
+        const out = $('#vOut', body);
+        if (!vehicle && !scheme) { out.innerHTML = `<div class="meta">${name ? 'Model not found in your list. Pick a scheme and enter the value below, or add the model.' : 'Type a model and choose the manufacturing year.'}</div>`; $('#vBand', body).innerHTML = ''; return; }
+        const q = vehicleQuote({ vehicle, scheme, year, tenure, value });
+        out.innerHTML = quoteBox(vehicle, q, false);
+        const sc = q.scheme;
+        $('#vBand', body).innerHTML = sc ? `<div class="section-title">${esc(sc.name)} scheme</div><div class="grid-wrap"><table class="ltv"><thead><tr><th class="corner">Age (yrs)</th><th>LTV %</th><th>ROI %</th><th>Max tenure</th><th>Max loan</th></tr></thead><tbody>${(sc.bands || []).map(b => `<tr><th>${esc(b.from)}–${esc(b.to)}</th>${['ltv', 'roi', 'tenure', 'maxLoan'].map(k => `<td class="${b === q.band ? 'hit' : ''}">${esc(b[k] === '' || b[k] == null ? '—' : b[k])}</td>`).join('')}</tr>`).join('')}</tbody></table></div>${sc.notes ? `<div class="hint">${esc(sc.notes)}</div>` : ''}` : '';
+      };
+      $$('input,select', body).forEach(el => { el.oninput = calc; el.onchange = calc; });
+      calc();
+    });
+  }
+
+  const VEHICLE_FIELDS = [
+    { k: 'name', label: 'Model name', required: true, ph: 'e.g. Maruti Suzuki Swift VXi' },
+    { k: 'scheme', label: 'Scheme', type: 'select', options: () => S.schemes.map(sc => [sc.name, sc.name]) },
+    { k: 'price', label: 'New price / base value (₹)', ph: 'e.g. 700000' },
+    { k: 'yearValues', label: 'Year-wise valuation (optional)', type: 'textarea', ph: '2024=560000, 2023=510000, 2022=470000', hint: 'If a year is listed here that value is used; otherwise new price × scheme value % for the age.' },
+    { k: 'keywords', label: 'Other names / keywords', ph: 'e.g. swift dzire hatchback' },
+  ];
+  const editVehicle = v => formSheet(v ? 'Edit model' : 'New vehicle model', VEHICLE_FIELDS, v || { scheme: (S.schemes[0] || {}).name || '' },
+    d => { delete d.sample; return DB.put('vehicles', d); }, v ? () => DB.del('vehicles', v.id) : null);
+
+  function openVehicleList() {
+    openSheet('Vehicle models', body => {
+      body.innerHTML = `<input class="input" id="vf" placeholder="Filter models" style="margin:0 0 8px">
+        <div id="vl"></div>
+        <div class="section-title">Bulk add from Excel</div>
+        <div class="hint">Copy from Excel and paste. First row = headings: <b>Model, Scheme, Price</b>, then optional year columns (e.g. 2024, 2023, 2022) with the valuation for that year.</div>
+        <textarea class="input" id="vPaste" placeholder="Model&#9;Scheme&#9;Price&#9;2024&#9;2023"></textarea>
+        <button class="btn secondary small" id="vImport" style="margin-top:6px">Import pasted models</button>`;
+      const draw = () => {
+        const f = $('#vf', body).value.trim().toLowerCase();
+        const list = S.vehicles.filter(v => !f || (v.name + ' ' + (v.keywords || '')).toLowerCase().includes(f));
+        $('#vl', body).innerHTML = list.slice(0, 300).map(v => `<div class="card tap" data-open="vehicle" data-id="${v.id}"><div class="row"><h3 class="ellip">${esc(v.name)}</h3><span class="badge">${esc(v.scheme || '?')}</span></div><div class="meta">${v.price ? fmtINR(num(v.price)) : 'no price'}${v.yearValues ? ' · year-wise values' : ''}${v.sample ? ' · SAMPLE' : ''}</div></div>`).join('') || '<div class="meta">No models.</div>';
+      };
+      $('#vf', body).oninput = draw; draw();
+      $('#vImport', body).onclick = async () => {
+        const lines = $('#vPaste', body).value.replace(/\r/g, '').split('\n').filter(l => l.trim());
+        if (lines.length < 2) { toast('Paste a heading row and at least one model'); return; }
+        const sep = lines[0].includes('\t') ? '\t' : (lines[0].includes(';') ? ';' : ',');
+        const head = lines[0].split(sep).map(h => h.trim().toLowerCase());
+        const iName = head.findIndex(h => /model|vehicle|name/.test(h));
+        const iSch = head.findIndex(h => /scheme|category|segment|type/.test(h));
+        const iPrice = head.findIndex(h => /price|value|cost|ex.?showroom/.test(h) && !/^\d{4}$/.test(h));
+        const yearCols = head.map((h, i) => /^(19|20)\d\d$/.test(h) ? i : -1).filter(i => i >= 0);
+        if (iName < 0) { toast('Need a “Model” column'); return; }
+        let n = 0;
+        for (const l of lines.slice(1)) {
+          const c = l.split(sep).map(x => x.trim());
+          if (!c[iName]) continue;
+          const o = { name: c[iName], scheme: iSch >= 0 ? c[iSch] : '', price: iPrice >= 0 ? String(num(c[iPrice]) || '') : '', yearValues: yearCols.filter(i => isFinite(num(c[i]))).map(i => `${head[i]}=${num(c[i])}`).join(', ') };
+          const sc = S.schemes.find(x => x.name.toLowerCase() === (o.scheme || '').toLowerCase());
+          if (sc) o.scheme = sc.name;
+          const ex = S.vehicles.find(v => v.name.toLowerCase() === o.name.toLowerCase());
+          await DB.put('vehicles', ex ? { ...ex, ...o, sample: false } : o); n++;
+        }
+        await loadAll(); draw(); renderTab(); toast(`${n} models imported`);
+      };
+    });
+  }
+
+  function editScheme(sc0) {
+    const isNew = !sc0;
+    const d = sc0 ? JSON.parse(JSON.stringify(sc0)) : { name: '', productId: '', maxAge: '', valuePct: '', notes: '', bands: [{ from: 0, to: 3, ltv: '', roi: '', tenure: '', maxLoan: '' }] };
+    openSheet(isNew ? 'New vehicle scheme' : 'Edit scheme', (body, actions) => {
+      const read = () => {
+        ['name', 'productId', 'maxAge', 'valuePct', 'notes'].forEach(k => { d[k] = $(`[data-s="${k}"]`, body).value.trim(); });
+        $$('[data-b]', body).forEach(el => { d.bands[+el.dataset.i][el.dataset.b] = el.value.trim(); });
+      };
+      const draw = () => {
+        body.innerHTML = `${d.sample ? '<div class="notice">SAMPLE scheme – replace with your real policy.</div>' : ''}
+          <label class="f">Scheme name</label><input class="input" data-s="name" value="${esc(d.name)}" placeholder="e.g. Car / Two Wheeler / Commercial Vehicle">
+          <label class="f">Product</label><select class="input" data-s="productId">${productOptions().map(o => `<option value="${esc(o[0])}" ${o[0] === d.productId ? 'selected' : ''}>${esc(o[1])}</option>`).join('')}</select>
+          <div class="two"><div><label class="f">Max vehicle age at loan end (yrs)</label><input class="input" data-s="maxAge" inputmode="numeric" value="${esc(d.maxAge)}"></div>
+          <div><label class="f">Value % of new price by age 0,1,2…</label><input class="input" data-s="valuePct" value="${esc(d.valuePct)}" placeholder="90,80,70,62,55"></div></div>
+          <div class="section-title">Age bands</div>
+          <div class="grid-wrap"><table class="ltv"><thead><tr><th>Age from</th><th>Age to</th><th>LTV %</th><th>ROI %</th><th>Max tenure (m)</th><th>Max loan ₹</th></tr></thead><tbody>
+          ${d.bands.map((b, i) => `<tr>${['from', 'to', 'ltv', 'roi', 'tenure', 'maxLoan'].map(k => `<td style="padding:2px"><input class="input" style="margin:0;min-width:70px;padding:6px" inputmode="decimal" data-b="${k}" data-i="${i}" value="${esc(b[k] == null ? '' : b[k])}"></td>`).join('')}</tr>`).join('')}
+          </tbody></table></div>
+          <div class="btn-row"><button class="btn secondary small" id="bAdd">+ Band</button><button class="btn secondary small" id="bDel">− Last band</button></div>
+          <label class="f">Notes</label><textarea class="input" data-s="notes">${esc(d.notes || '')}</textarea>
+          <div class="btn-row" style="margin-top:14px"><button class="btn block" id="scSave">Save scheme</button></div>
+          ${!isNew ? '<div class="btn-row"><button class="btn danger block" id="scDel">Delete scheme</button></div>' : ''}`;
+        $('#bAdd', body).onclick = () => { read(); const last = d.bands[d.bands.length - 1] || {}; d.bands.push({ from: isFinite(num(last.to)) ? num(last.to) + 1 : '', to: '', ltv: '', roi: '', tenure: '', maxLoan: '' }); draw(); };
+        $('#bDel', body).onclick = () => { read(); if (d.bands.length > 1) d.bands.pop(); draw(); };
+        $('#scSave', body).onclick = async () => {
+          read();
+          if (!d.name) { toast('Enter scheme name'); return; }
+          const oldName = sc0 && sc0.name;
+          delete d.sample;
+          await DB.put('schemes', d);
+          if (oldName && oldName !== d.name) for (const v of S.vehicles.filter(v => v.scheme === oldName)) await DB.put('vehicles', { ...v, scheme: d.name });
+          await loadAll(); closeSheet(); renderTab(); toast('Scheme saved');
+        };
+        if (!isNew) $('#scDel', body).onclick = async () => { if (!confirm('Delete this scheme?')) return; await DB.del('schemes', d.id); await loadAll(); closeSheet(); renderTab(); toast('Deleted'); };
+      };
+      draw();
+      actionBtn(actions, ICON.save, 'Save', () => $('#scSave', body).click());
+    });
   }
 
   // ---------- start ----------

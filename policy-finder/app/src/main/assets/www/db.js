@@ -1,8 +1,8 @@
 /* Tiny IndexedDB wrapper. Everything is stored offline on the phone. */
 const DB = (() => {
   const NAME = 'policyfinder';
-  const VERSION = 1;
-  const STORES = ['products', 'docs', 'files', 'grids', 'rules', 'meta'];
+  const VERSION = 2;
+  const STORES = ['products', 'docs', 'files', 'grids', 'rules', 'meta', 'vehicles', 'schemes'];
   let dbp = null;
 
   function open() {

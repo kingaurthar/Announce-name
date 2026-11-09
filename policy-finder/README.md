@@ -7,6 +7,11 @@ Offline policy finder for NBFC field / branch use. Everything is stored on the p
   Results come instantly from products, situations, LTV grids and text inside your policy PDFs.
   Understands short forms (pl, bl, lap, tw, cv, roi, pf, ntc…) and small spelling mistakes.
 - **Instant LTV answer** – if your search has numbers (CIBIL, vehicle age, tenure, loan amount), the matching grid cell is shown on top.
+- **Vehicle loan check** – choose a vehicle model + manufacturing year + tenure and get the **max loan amount, max tenure, rate (ROI), LTV and EMI**.
+  Also works from the search box: `swift 2019 36 months`, `activa 2023 3 years`.
+  Set it up in the *Vehicle/LTV* tab:
+  - **Schemes** (Car / Two Wheeler / CV…): age bands with LTV %, ROI %, max tenure, optional max loan; max vehicle age at loan end; value % of new price by age.
+  - **Vehicle models**: new price and optional year-wise valuation. Bulk add by pasting from Excel (`Model, Scheme, Price, 2025, 2024, …`).
 - **Products** – interest rate, processing fee, documentation charges, other charges, amount, tenure, eligibility, notes.
 - **Policies** – upload policy PDFs and photos. PDF text is read automatically for search; open them in-app with zoom and “Find in this PDF”.
 - **LTV / Tenure grids** – rows (CIBIL / vehicle age / property type…) × columns (tenure / amount). Pick from dropdowns or tap a cell. Paste tables straight from Excel.
