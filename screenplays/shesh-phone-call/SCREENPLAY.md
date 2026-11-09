@@ -901,7 +901,7 @@ All 17 shots, drawn with the locked Rahul rig on the bedroom and exterior plates
 
 ## 12. ANIMATIC
 
-▶️ [`animatic.mp4`](./animatic.mp4): 90.0 s · 1080×1920 (9:16) · 24 fps · H.264 + AAC stereo · about −14 LUFS
+▶️ [`animatic.mp4`](./animatic.mp4): 90.0 s · 1080×1920 (9:16) · 24 fps · H.264 + AAC stereo · −15.5 LUFS, true peak −2.3 dBFS (no clipping)
 
 - Built from the 17 clean storyboard frames at the exact §5 shot durations, with the camera moves simulated: push-ins, whip-pans with motion blur, the Shot 9 snap-zoom, the phone shake in Shot 12, and the arc and lightning reveal in Shot 16. Shot 17 runs split frame → glitch → black card → the 2:17 phone lighting up again for the loop.
 - Bengali subtitles are burned in from `subtitles_bn.srt`, colour-coded by speaker.
