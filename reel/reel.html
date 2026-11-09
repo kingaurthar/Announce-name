@@ -1,0 +1,618 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hindustan Ke Jawan</title>
+<style>
+  @font-face { font-family: 'Anton'; src: url('fonts/Anton.ttf'); }
+  @font-face { font-family: 'Poppins'; font-weight: 600; src: url('fonts/Poppins-600.ttf'); }
+  @font-face { font-family: 'Poppins'; font-weight: 800; src: url('fonts/Poppins-800.ttf'); }
+  html, body { margin: 0; background: #0d0b08; height: 100%; }
+  body { display: flex; align-items: center; justify-content: center; }
+  canvas { height: 100vh; max-width: 100vw; aspect-ratio: 9 / 16; display: block; }
+  body.render canvas { height: auto; width: 1080px; }
+</style>
+</head>
+<body>
+<canvas id="c" width="1080" height="1920"></canvas>
+<script>
+/* =====================================================================
+   "Duniya Ki Jung, Hindustan Ke Jawan" — 90 sec box-style documentary reel
+   Everything is drawn from 3D boxes. renderFrame(t) is deterministic, so
+   render.js can step through it frame by frame.
+   ===================================================================== */
+const W = 1080, H = 1920, DUR = 90;
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+
+const C = {
+  ink: '#14110c', paper: '#efe2c0', khaki: '#8f7f4e', olive: '#5c6a36',
+  skin: '#a86f48', turban: '#c9a35a', red: '#b8322a', gold: '#e3b341',
+  saffron: '#ff9933', green: '#138808', white: '#f6f1e4', steel: '#6c7377',
+  brown: '#5a3d24', sand: '#d2b277', navy: '#1b2633'
+};
+
+/* ---------- math helpers ---------- */
+const clamp = (v, a = 0, b = 1) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const prog = (t, a, b) => clamp((t - a) / (b - a));
+const easeOut = t => 1 - Math.pow(1 - t, 3);
+const easeInOut = t => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+const backOut = t => { const c1 = 1.7, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); };
+function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const hash = n => { const x = Math.sin(n * 127.1) * 43758.5453; return x - Math.floor(x); };
+function shade(hex, f) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = clamp(Math.round(((n >> 16) & 255) * f), 0, 255), g = clamp(Math.round(((n >> 8) & 255) * f), 0, 255), b = clamp(Math.round((n & 255) * f), 0, 255);
+  return `rgb(${r},${g},${b})`;
+}
+const indian = n => { const s = String(Math.round(n)); if (s.length <= 3) return s; const last = s.slice(-3); let rest = s.slice(0, -3); rest = rest.replace(/\B(?=(\d{2})+(?!\d))/g, ','); return rest + ',' + last; };
+
+/* ---------- box primitives ---------- */
+function box(x, y, w, h, col, d = 0, alpha = 1) {
+  ctx.globalAlpha = alpha;
+  if (d) {
+    ctx.fillStyle = shade(col, 1.28);
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + d, y - d); ctx.lineTo(x + w + d, y - d); ctx.lineTo(x + w, y); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = shade(col, 0.68);
+    ctx.beginPath(); ctx.moveTo(x + w, y); ctx.lineTo(x + w + d, y - d); ctx.lineTo(x + w + d, y + h - d); ctx.lineTo(x + w, y + h); ctx.closePath(); ctx.fill();
+  }
+  ctx.fillStyle = col; ctx.fillRect(x, y, w, h);
+  ctx.globalAlpha = 1;
+}
+
+/* Boxy soldier. (x,y) = feet centre. s = scale (≈100px tall at s=1). */
+function soldier(x, y, s, o = {}) {
+  const ph = o.walk || 0, sw = Math.sin(ph) * (o.walk !== undefined ? 1 : 0);
+  const uni = o.uniform || C.khaki, d = 5 * s;
+  ctx.save(); ctx.translate(x, y); ctx.scale(s, s);
+  if (o.flip) ctx.scale(-1, 1);
+  const k = 1 / s; // keep depth in px
+  // back leg / arm
+  box(-11 + sw * -5, -32, 10, 32, shade(uni, .75), d * k);
+  box(-20, -62 + sw * 2, 8, 28, shade(uni, .8), d * k);
+  // front leg
+  box(1 + sw * 5, -32, 10, 32, shade(uni, .9), d * k);
+  box(-12 + sw * -5, -6, 13, 6, C.ink); box(0 + sw * 5, -6, 13, 6, C.ink);
+  // torso
+  box(-15, -66, 30, 36, uni, d * k);
+  box(-15, -40, 30, 5, shade(uni, .55));
+  // head
+  box(-10, -88, 20, 22, o.skin || C.skin, d * k);
+  ctx.fillStyle = C.ink; ctx.fillRect(1, -80, 3, 3); ctx.fillRect(6, -80, 3, 3);
+  if (o.moustache !== false) { ctx.fillStyle = '#2a1d12'; ctx.fillRect(0, -73, 10, 2.5); }
+  // headgear
+  if (o.helmet) { box(-16, -91, 32, 5, C.olive, d * k); box(-11, -99, 22, 8, C.olive, d * k); }
+  else if (o.hair) { box(-12, -94, 24, 9, '#1c140e', d * k); box(-13, -88, 6, 20, '#1c140e'); }
+  else { box(-13, -100, 26, 14, o.turban || C.turban, d * k); box(-6, -106, 12, 6, shade(o.turban || C.turban, .9), d * k * .6); }
+  // front arm + rifle
+  if (o.rifle !== false) { box(12, -96, 4, 64, '#3b2a1a'); box(11, -100, 6, 6, C.steel); }
+  box(10, -62 - sw * 2, 8, 28, shade(uni, 1.05), d * k);
+  if (o.medal) { box(-6, -60, 7, 9, C.gold); box(-5, -64, 5, 4, C.red); }
+  ctx.restore();
+}
+
+function cross(x, y, s, col, ribbon) { // medal cross made of boxes
+  box(x - 10 * s, y - 30 * s, 20 * s, 18 * s, ribbon, 3 * s);
+  box(x - 6 * s, y - 12 * s, 12 * s, 36 * s, col, 4 * s);
+  box(x - 18 * s, y, 36 * s, 12 * s, col, 4 * s);
+}
+
+/* ---------- text helpers ---------- */
+function text(str, x, y, size, col, o = {}) {
+  ctx.font = `${o.weight || ''} ${size}px ${o.font || 'Anton'}, 'DejaVu Sans', sans-serif`;
+  ctx.textAlign = o.align || 'center'; ctx.textBaseline = 'middle';
+  if (o.ls) ctx.letterSpacing = o.ls + 'px'; else ctx.letterSpacing = '0px';
+  if (o.shadow) { ctx.fillStyle = o.shadow; ctx.fillText(str, x + o.sd, y + o.sd); }
+  ctx.fillStyle = col; ctx.fillText(str, x, y);
+  ctx.letterSpacing = '0px';
+}
+function chip(str, x, y, size, bg, fg, o = {}) { // label on a 3D box
+  ctx.font = `${size}px Anton, sans-serif`; ctx.letterSpacing = (o.ls || 2) + 'px';
+  const w = ctx.measureText(str).width + size * 1.1, h = size * 1.55;
+  const bx = o.align === 'left' ? x : x - w / 2;
+  box(bx, y - h / 2, w, h, bg, o.d ?? 10);
+  ctx.letterSpacing = '0px';
+  text(str, bx + w / 2, y + 2, size, fg, { ls: o.ls || 2 });
+  return w;
+}
+function stamp(str, x, y, size, col, t, rot = -0.08) {
+  const p = clamp(t / 0.35); if (p <= 0) return;
+  const sc = lerp(2.2, 1, easeOut(p));
+  ctx.save(); ctx.translate(x, y); ctx.rotate(rot); ctx.scale(sc, sc); ctx.globalAlpha = p;
+  ctx.font = `${size}px Anton`; const w = ctx.measureText(str).width + 50;
+  ctx.strokeStyle = col; ctx.lineWidth = 10; ctx.strokeRect(-w / 2, -size * .62, w, size * 1.24);
+  text(str, 0, 4, size, col);
+  ctx.restore(); ctx.globalAlpha = 1;
+}
+
+/* ---------- backgrounds ---------- */
+function sky(top, bot) { const g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, top); g.addColorStop(1, bot); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H); }
+function rays(cx, cy, t, col, a) {
+  ctx.save(); ctx.translate(cx, cy); ctx.rotate(t * 0.08); ctx.fillStyle = col; ctx.globalAlpha = a;
+  for (let i = 0; i < 16; i++) { ctx.rotate(Math.PI / 8); ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(1800, -160); ctx.lineTo(1800, 160); ctx.fill(); i++; ctx.rotate(Math.PI / 8); }
+  ctx.restore(); ctx.globalAlpha = 1;
+}
+function smokeBoxes(x, y, t, seed, n = 6, col = '#8a8275') {
+  for (let i = 0; i < n; i++) {
+    const life = ((t * 0.5 + i / n) % 1), s = 18 + life * 50;
+    box(x + Math.sin(seed + i * 2.1) * 20 + life * 90, y - life * 260, s, s, col, 6, (1 - life) * 0.7);
+  }
+}
+function blast(x, y, t, size) { // t 0..1
+  if (t <= 0 || t >= 1) return;
+  const e = easeOut(t);
+  for (let i = 0; i < 9; i++) {
+    const a = i / 9 * Math.PI * 2 + hash(x + i) , r = e * size * (0.6 + hash(i + y) * .6), s = (1 - t) * size * .35;
+    box(x + Math.cos(a) * r - s / 2, y + Math.sin(a) * r * .6 - s / 2, s, s, i % 2 ? C.saffron : C.gold, 6, 1 - t);
+  }
+  box(x - size * .3 * (1 - t), y - size * .3 * (1 - t), size * .6 * (1 - t), size * .6 * (1 - t), '#fff3c4', 0, 1 - t);
+}
+
+/* =====================================================================
+   SCENES  (lt = local time in seconds)
+   ===================================================================== */
+function sTitle(lt) {
+  sky('#2b2214', '#120e09');
+  rays(540, 1250, lt, C.gold, 0.07);
+  // square sun
+  const sp = easeOut(prog(lt, 0, 1.5));
+  box(390, 1250 - 330 * sp, 300, 300, C.saffron, 0, 0.9);
+  // ground
+  box(-20, 1250, W + 40, 700, '#2a1f13', 30);
+  // soldiers rising from trench line
+  ctx.save(); ctx.beginPath(); ctx.rect(0, 0, W, 1250); ctx.clip();
+  const xs = [150, 340, 540, 740, 930];
+  xs.forEach((x, i) => {
+    const p = backOut(prog(lt, 0.4 + i * 0.18, 1.3 + i * 0.18));
+    soldier(x, 1250 + 320 * (1 - p), 2.6, { helmet: i === 1 || i === 3, uniform: i % 2 ? C.olive : C.khaki, turban: i === 2 ? '#d8b26a' : C.turban });
+  });
+  ctx.restore();
+  // title
+  const a = backOut(prog(lt, 1.6, 2.3)), b = backOut(prog(lt, 2.0, 2.7));
+  ctx.save(); ctx.translate(540, 470); ctx.scale(a, a);
+  box(-470, -95, 940, 180, C.ink, 18); text('DUNIYA KI JUNG', 0, 0, 132, C.paper, { ls: 4 });
+  ctx.restore();
+  ctx.save(); ctx.translate(540, 680); ctx.scale(b, b);
+  box(-490, -95, 980, 180, C.saffron, 18); text('HINDUSTAN KE JAWAN', 0, 0, 116, C.ink, { ls: 3 });
+  ctx.restore();
+  if (lt > 3) chip('1914 — 1945  •  BOX DOCUMENTARY', 540, 860, 40, C.paper, C.ink, { ls: 3 });
+}
+
+function sShip(lt) {
+  sky('#d9c08a', '#b48a52');
+  box(720, 330, 190, 190, '#f3d27a', 0, 0.9);
+  // distant land blocks
+  for (let i = 0; i < 9; i++) box(i * 130 - 20, 1010 - hash(i) * 70, 140, 120, '#9c7a4c', 8);
+  // ship
+  const sx = lerp(-760, 200, easeOut(prog(lt, 0, 4.5))) + lt * 12;
+  const bob = Math.sin(lt * 2.2) * 8;
+  ctx.save(); ctx.translate(sx, bob);
+  box(230, 880, 70, 150, '#3a2b20', 14); box(380, 900, 70, 130, '#3a2b20', 14);
+  box(230, 880, 70, 24, C.red); box(380, 900, 70, 24, C.red);
+  smokeBoxes(265, 860, lt, 1); smokeBoxes(415, 880, lt + .4, 3);
+  box(60, 1030, 640, 40, '#5d5148', 14);
+  for (let i = 0; i < 7; i++) soldier(110 + i * 80, 1030, 0.75, { uniform: C.khaki, rifle: i % 2 === 0 });
+  box(0, 1070, 760, 120, '#2a2421', 22); box(0, 1070, 760, 16, C.red);
+  for (let i = 0; i < 8; i++) box(60 + i * 85, 1110, 26, 26, '#e7d6a6');
+  ctx.restore();
+  // sea bands
+  for (let r = 0; r < 7; r++) {
+    const y = 1150 + r * 110, off = (lt * (40 + r * 18) + r * 70) % 160;
+    for (let i = -1; i < 9; i++) box(i * 160 - off, y + Math.sin(lt * 2 + i + r) * 6, 150, 120, r % 2 ? '#3f5a63' : '#4b6b73', 10);
+  }
+  stamp('1914', 540, 520, 190, C.red, lt - 0.3);
+  if (lt > 1.2) chip('WORLD WAR 1', 540, 720, 44, C.ink, C.paper);
+}
+
+function sCount13(lt) {
+  sky('#2c2b1b', '#15140c');
+  const cols = 30, rows = 24, cell = 32, x0 = (W - cols * cell) / 2 + 6, y0 = 400;
+  const p = easeInOut(prog(lt, 0.4, 6.5)), n = Math.floor(cols * rows * p);
+  for (let i = 0; i < cols * rows; i++) {
+    const c = i % cols, r = Math.floor(i / cols);
+    const x = x0 + c * cell, y = y0 + r * cell;
+    if (i < n) { const pop = clamp((n - i) / 25); box(x + 2, y + 2 + (1 - pop) * -14, 24, 24, (i * 7 % 11 === 0) ? C.turban : C.khaki, 4); }
+    else { ctx.fillStyle = 'rgba(239,226,192,.06)'; ctx.fillRect(x + 2, y + 2, 24, 24); }
+  }
+  text('1 BOX ≈ 1,800 JAWAN', 540, 330, 40, C.turban, { font: 'Poppins', weight: 800, ls: 2 });
+  const num = indian(1300000 * p);
+  box(120, 1225, 840, 200, C.paper, 18);
+  text(num, 540, 1315, 150, C.ink, { ls: 2 });
+  chip('INDIAN SOLDIERS • WW1', 540, 1470, 40, C.red, C.white);
+  soldier(150, 1160, 1.6, { uniform: C.khaki });
+  soldier(930, 1160, 1.6, { uniform: C.khaki, flip: true });
+}
+
+function sTrench(lt) {
+  sky('#4b4a45', '#25231f');
+  // distant blasts
+  [[0.5, 260, 820], [1.9, 760, 780], [3.4, 470, 850], [4.6, 900, 820], [6.4, 180, 800], [8.1, 650, 790]].forEach(([s, x, y]) => blast(x, y, (lt - s) / 1.1, 220));
+  // no-man's land + barbed wire
+  box(-10, 930, W + 20, 120, '#4a3a2a', 0);
+  ctx.strokeStyle = '#1d1712'; ctx.lineWidth = 4; ctx.beginPath();
+  for (let x = 0; x <= W; x += 30) ctx.lineTo(x, 960 + (x / 30 % 2 ? -22 : 10)); ctx.stroke();
+  // trench wall back
+  box(-10, 1050, W + 20, 400, '#3b2c1e', 0);
+  for (let i = 0; i < 14; i++) box(i * 82 - 20, 1010 + (i % 2) * 6, 86, 46, '#8f7a55', 10); // sandbags
+  // soldiers in trench
+  const spot = prog(lt, 5, 5.6);
+  const xs = [140, 330, 540, 750, 940];
+  xs.forEach((x, i) => soldier(x, 1310, 2.7, { uniform: i === 2 ? C.khaki : shade(C.khaki, .85), medal: i === 2 && lt > 6, turban: i === 2 ? '#d1ac63' : C.turban }));
+  // mud floor
+  box(-10, 1300, W + 20, 700, '#2a1f16', 0);
+  for (let i = 0; i < 12; i++) box(i * 95, 1300 + (i % 3) * 8, 70, 14, '#4a382a');
+  // rain
+  ctx.strokeStyle = 'rgba(200,210,215,.35)'; ctx.lineWidth = 3; ctx.beginPath();
+  for (let i = 0; i < 140; i++) { const x = hash(i) * 1200 - 60, y = ((hash(i + 9) * H + lt * 1600) % (H + 200)) - 100; ctx.moveTo(x, y); ctx.lineTo(x - 18, y + 60); }
+  ctx.stroke();
+  // spotlight on Khudadad Khan
+  if (spot > 0) {
+    ctx.save(); ctx.fillStyle = `rgba(8,6,4,${0.78 * spot})`; ctx.beginPath(); ctx.rect(0, 0, W, H);
+    ctx.arc(540, 1150, lerp(900, 230, easeOut(spot)), 0, Math.PI * 2, true); ctx.fill(); ctx.restore();
+    const a = backOut(prog(lt, 5.4, 6.0));
+    ctx.save(); ctx.translate(540, 420); ctx.scale(a, a);
+    box(-400, -80, 800, 160, C.paper, 16); text('KHUDADAD KHAN', 0, 2, 110, C.ink, { ls: 3 });
+    ctx.restore();
+    if (lt > 6) chip('PEHLA INDIAN VICTORIA CROSS • YPRES 1914', 540, 580, 34, C.red, C.white);
+    if (lt > 6.3) cross(540, 760, 2.2 * backOut(prog(lt, 6.3, 6.9)), '#a0703c', C.red);
+  } else {
+    chip('FRANCE & BELGIUM • 1914-15', 540, 400, 46, C.ink, C.paper);
+  }
+}
+
+const MAP = { india: [830, 1080], france: [250, 520], gallipoli: [470, 640], meso: [660, 830], palestine: [470, 860], africa: [500, 1230] };
+function boxMap(seed, col) {
+  const r = rng(seed), cell = 46;
+  const blobs = [[250, 560, 4], [420, 620, 2.5], [600, 760, 4], [450, 900, 2.5], [430, 1150, 5], [360, 980, 3], [840, 1060, 4.5], [780, 900, 3], [900, 1200, 2.5]];
+  const seen = new Set();
+  blobs.forEach(([bx, by, rad]) => {
+    for (let k = 0; k < rad * rad * 4; k++) {
+      const ang = r() * Math.PI * 2, d = Math.sqrt(r()) * rad * cell;
+      const gx = Math.round((bx + Math.cos(ang) * d) / cell), gy = Math.round((by + Math.sin(ang) * d) / cell), key = gx + ',' + gy;
+      if (seen.has(key)) continue; seen.add(key);
+      box(gx * cell, gy * cell, cell - 4, cell - 4, col, 6);
+    }
+  });
+}
+function sMap1(lt) {
+  sky('#1f2a2c', '#121a1b');
+  ctx.strokeStyle = 'rgba(239,226,192,.05)'; ctx.lineWidth = 2;
+  for (let x = 0; x < W; x += 46) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 46) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+  boxMap(7, '#8b7a55');
+  const order = [['france', 'FRANCE'], ['gallipoli', 'GALLIPOLI'], ['meso', 'MESOPOTAMIA'], ['africa', 'EAST AFRICA'], ['palestine', 'HAIFA 1918']];
+  const [ix, iy] = MAP.india;
+  order.forEach(([k, label], i) => {
+    const p = easeInOut(prog(lt, 0.3 + i * 0.6, 1.0 + i * 0.6)); if (p <= 0) return;
+    const [tx, ty] = MAP[k], mx = (ix + tx) / 2, my = Math.min(iy, ty) - 160;
+    ctx.strokeStyle = k === 'palestine' ? C.gold : C.saffron; ctx.lineWidth = 7; ctx.setLineDash([22, 14]); ctx.lineDashOffset = -lt * 60;
+    ctx.beginPath(); ctx.moveTo(ix, iy);
+    const N = 40; for (let j = 1; j <= N * p; j++) { const u = j / N; ctx.lineTo((1 - u) * (1 - u) * ix + 2 * (1 - u) * u * mx + u * u * tx, (1 - u) * (1 - u) * iy + 2 * (1 - u) * u * my + u * u * ty); }
+    ctx.stroke(); ctx.setLineDash([]);
+    if (p >= 1) { const b = backOut(prog(lt, 1.0 + i * 0.6, 1.4 + i * 0.6)); ctx.save(); ctx.translate(tx, ty); ctx.scale(b, b); box(-18, -18, 36, 36, C.red, 8); ctx.restore(); chip(label, tx, ty - 64, 30, C.paper, C.ink, { d: 6 }); }
+  });
+  box(ix - 26, iy - 26, 52, 52, C.saffron, 10); chip('INDIA', ix, iy + 70, 36, C.saffron, C.ink);
+  text('HAR FRONT PE', 540, 300, 96, C.paper, { shadow: C.ink, sd: 6 });
+  // galloping lancer across bottom during Haifa line
+  if (lt > 4) {
+    const x = lerp(-250, 1250, prog(lt, 4, 8)); lancer(x, 1460, 1.5, lt);
+  }
+}
+function lancer(x, y, s, t) {
+  ctx.save(); ctx.translate(x, y); ctx.scale(s, s);
+  const g = Math.sin(t * 16);
+  [[-60, g], [-40, -g], [40, -g], [60, g]].forEach(([lx, a]) => box(lx + a * 8, -50, 12, 50, '#4a2f1c', 4));
+  box(-75, -100, 150, 55, '#6b4426', 10); box(60, -150, 30, 60, '#6b4426', 8); box(70, -165, 55, 28, '#6b4426', 8);
+  box(-90, -100, 18, 40, '#2a1a10');
+  soldier(-5, -95, 0.85, { rifle: false, turban: '#d8b26a' });
+  ctx.strokeStyle = '#3b2a1a'; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(-40, -120); ctx.lineTo(150, -230); ctx.stroke();
+  box(146, -238, 14, 10, C.red);
+  ctx.restore();
+}
+
+function sGraves(lt) {
+  sky('#2a2622', '#0f0d0b');
+  box(-10, 860, W + 20, 1100, '#2b2a1c', 0);
+  const rows = [[900, 0.55, 9], [1010, 0.75, 7], [1150, 1.0, 6], [1320, 1.3, 5]];
+  let k = 0;
+  rows.forEach(([y, s, n], r) => {
+    for (let i = 0; i < n; i++, k++) {
+      const p = backOut(prog(lt, 0.3 + k * 0.07, 0.8 + k * 0.07)); if (p <= 0) continue;
+      const gap = W / n, x = gap * i + gap / 2;
+      const w = 60 * s, h = 90 * s * p;
+      box(x - w / 2, y - h, w, h, '#d9d2bf', 8 * s);
+      box(x - w * .32, y - h + 20 * s, w * .64, 6 * s, '#9c9586');
+      if ((i + r) % 2 === 0 && p >= 1) box(x + w / 2 + 4, y - 18 * s, 16 * s, 16 * s, C.red, 4 * s); // poppy
+    }
+  });
+  const p = easeOut(prog(lt, 0.2, 4));
+  text(indian(74000 * p) + '+', 540, 420, 220, C.red, { shadow: C.ink, sd: 10 });
+  if (lt > 1.3) chip('JAWAN KABHI WAPAS NAHI AAYE', 540, 610, 44, C.paper, C.ink);
+}
+
+function sWW2(lt) {
+  sky('#3d3420', '#1a160d');
+  rays(540, 1100, lt, C.gold, 0.05);
+  // year flip
+  const f = prog(lt, 0.2, 1.4), yr = Math.round(lerp(1918, 1939, easeInOut(f)));
+  ctx.save(); ctx.translate(540, 400); const sc = lt < 1.4 ? 1 : 1 + 0.06 * Math.sin((lt - 1.4) * 6) * Math.exp(-(lt - 1.4) * 2);
+  ctx.scale(sc, sc); box(-280, -120, 560, 240, C.ink, 18); text(String(yr), 0, 4, 200, C.saffron, { ls: 6 }); ctx.restore();
+  if (lt > 1.4) chip('WORLD WAR 2', 540, 590, 48, C.paper, C.ink);
+  // marching columns (perspective rows)
+  box(-10, 1000, W + 20, 1000, '#3a3020', 0);
+  [[1060, 1.0, 120], [1220, 1.45, 170], [1420, 2.0, 230]].forEach(([y, s, gap], r) => {
+    const off = (lt * 110 * s) % gap;
+    for (let i = -1; i < W / gap + 2; i++) {
+      const x = W + 60 - i * gap - off + (r % 2) * gap / 2;
+      soldier(x, y, s, { walk: lt * 7 + i, flip: true, helmet: (i + r) % 3 === 0, uniform: (i + r) % 2 ? C.olive : C.khaki, turban: (i % 4 === 1) ? '#7d2b2b' : C.turban });
+    }
+  });
+  if (lt > 3.6) {
+    const p = easeOut(prog(lt, 3.6, 7.2));
+    box(130, 650, 820, 190, C.saffron, 16); text(indian(2500000 * p), 540, 748, 150, C.ink, { ls: 2 });
+    chip('SABSE BADI VOLUNTEER ARMY', 540, 900, 40, C.ink, C.paper);
+  }
+}
+
+function panel(y, h, lt, delay, draw, label) {
+  const p = easeOut(prog(lt, delay, delay + 0.7)); if (p <= 0) return;
+  const x = lerp(delay % 2 ? -W : W, 0, p);
+  ctx.save(); ctx.translate(x, 0); ctx.beginPath(); ctx.rect(40, y, W - 80, h); ctx.clip();
+  draw(y, h); ctx.restore();
+  ctx.save(); ctx.translate(x, 0); ctx.strokeStyle = C.ink; ctx.lineWidth = 10; ctx.strokeRect(40, y, W - 80, h);
+  chip(label, 70, y + 40, 32, C.paper, C.ink, { align: 'left', d: 6 }); ctx.restore();
+}
+function sFronts(lt) {
+  sky('#211c14', '#0e0c08');
+  panel(300, 380, lt, 0.1, (y, h) => { // desert
+    sky('#f0c27a', '#c48a45'); ctx.fillStyle = '#e9b867';
+    box(640, y + 120, 240, 240, '#c9944f', 0); for (let i = 0; i < 4; i++) box(600 + i * 40, y + 300 - i * 50, 320 - i * 80, 50, '#b98340', 8);
+    box(0, y + 300, W, 100, C.sand, 0);
+    const tx = 160 + Math.sin(lt) * 30; box(tx, y + 240, 220, 60, '#6b6a3a', 12); box(tx + 50, y + 205, 110, 40, '#5c5b31', 10); box(tx + 160, y + 218, 120, 12, '#3a3a22');
+    for (let i = 0; i < 6; i++) box(tx + 10 + i * 35, y + 300, 26, 22, C.ink);
+    soldier(520, y + 330, 1.5, { uniform: C.khaki, walk: lt * 6, flip: true });
+  }, 'NORTH AFRICA • EL ALAMEIN');
+  panel(710, 380, lt, 1.1, (y, h) => { // mountains
+    sky('#9aa3a0', '#5e6662');
+    for (let i = 0; i < 5; i++) box(80 + i * 90, y + 360 - (i + 1) * 60, 900 - i * 180, 60, shade('#6f6a5e', 1 - i * .06), 10);
+    box(450, y + 50, 180, 60, '#d8cfb8', 10); box(500, y + 20, 50, 30, '#d8cfb8', 6);
+    soldier(220, y + 330, 1.5, { helmet: true, uniform: C.olive }); soldier(330, y + 270, 1.3, { uniform: C.olive, turban: '#e0d4b0' });
+  }, 'ITALY • MONTE CASSINO');
+  panel(1120, 380, lt, 2.1, (y, h) => { // jungle
+    sky('#3d5a33', '#1d2c18');
+    for (let i = 0; i < 9; i++) { const x = i * 125 + (i % 2) * 30; box(x + 30, y + 120, 26, 280, '#3b2a1a'); box(x - 10, y + 40 + (i % 3) * 30, 110, 110, shade('#2f6a2a', .8 + (i % 3) * .12), 12); }
+    soldier(400, y + 360, 1.6, { uniform: '#4f5d30', turban: '#4f5d30' }); soldier(560, y + 360, 1.6, { uniform: '#4f5d30', helmet: true }); soldier(720, y + 360, 1.6, { uniform: '#4f5d30', turban: '#2b2b5a' });
+    if (lt > 5) blast(880, y + 160, (lt - 5.2) / 1.2, 160);
+  }, 'BURMA • KOHIMA & IMPHAL');
+  if (lt > 5.2) stamp('1944', 820, 1420, 120, C.saffron, lt - 5.2, 0.08);
+}
+
+function sNoor(lt) {
+  sky('#0d1422', '#05070c');
+  // searchlights
+  [[200, 0.6], [880, -0.5]].forEach(([x, ph]) => {
+    const a = -Math.PI / 2 + Math.sin(lt * 0.9 + ph) * 0.5;
+    ctx.save(); ctx.translate(x, 1100); ctx.rotate(a); ctx.fillStyle = 'rgba(240,230,170,.08)';
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(1500, -150); ctx.lineTo(1500, 150); ctx.fill(); ctx.restore();
+  });
+  // boxy tower (Paris)
+  for (let i = 0; i < 7; i++) { const w = 220 - i * 30; box(760 - w / 2, 1060 - i * 90, w, 90, '#2b2f3a', 8); box(760 - w * .2, 1080 - i * 90, w * .4, 70, '#0d1422'); }
+  box(752, 400, 16, 60, '#2b2f3a');
+  // skyline
+  for (let i = 0; i < 10; i++) {
+    const bh = 220 + hash(i * 3) * 260, x = i * 115 - 20;
+    box(x, 1300 - bh, 105, bh + 700, '#1a1f2b', 10);
+    for (let wy = 0; wy < bh - 40; wy += 60) for (let wx = 0; wx < 2; wx++) { const on = hash(i * 31 + wy + wx + Math.floor(lt * 1.5)) > 0.55; box(x + 20 + wx * 45, 1300 - bh + 30 + wy, 22, 26, on ? '#f3c96b' : '#252b38'); }
+  }
+  // room window: Noor at radio
+  box(150, 1050, 780, 420, '#2a2116', 14);
+  box(170, 1070, 740, 380, '#3d3020', 0);
+  box(180, 1340, 720, 30, '#5a4027', 10);
+  box(560, 1250, 220, 90, '#4c4f45', 10); box(580, 1270, 60, 40, C.ink); box(660, 1275, 20, 20, C.red); box(700, 1275, 20, 20, C.gold);
+  ctx.strokeStyle = '#8b8f86'; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(760, 1250); ctx.lineTo(820, 1110); ctx.stroke();
+  soldier(430, 1440, 1.9, { hair: true, rifle: false, moustache: false, uniform: '#3b3b4a', skin: '#b67b55' });
+  box(470, 1300, 100, 14, '#3b3b4a'); // arm on key
+  // morse signals
+  for (let i = 0; i < 10; i++) {
+    const life = ((lt * 0.7 + i * 0.1) % 1); const dash = hash(i) > .5;
+    box(820 + life * 60, 1110 - life * 500 + Math.sin(i) * 30, dash ? 40 : 14, 14, C.gold, 4, 1 - life);
+  }
+  const a = backOut(prog(lt, 0.3, 0.9));
+  ctx.save(); ctx.translate(540, 360); ctx.scale(a, a);
+  box(-430, -80, 860, 160, C.paper, 16); text('NOOR INAYAT KHAN', 0, 2, 104, C.ink, { ls: 3 }); ctx.restore();
+  if (lt > 0.9) chip('CODENAME: MADELEINE • SOE AGENT', 540, 520, 34, C.ink, C.paper);
+  if (lt > 4) { const b = backOut(prog(lt, 4, 4.6)); cross(300, 780, 2 * b, '#c7ccd1', '#2f4fa8'); chip('GEORGE CROSS', 300, 920, 34, C.paper, C.ink, { d: 6 }); }
+}
+
+function sHonours(lt) {
+  sky('#3a1712', '#140806');
+  rays(540, 960, lt, C.gold, 0.05);
+  // falling medals pile
+  for (let i = 0; i < 38; i++) {
+    const delay = hash(i) * 4, x = 60 + hash(i + 50) * 960, rest = 1500 + hash(i + 7) * 180;
+    const t = lt - delay; if (t < 0) continue;
+    const y = Math.min(-100 + t * t * 900, rest);
+    ctx.save(); ctx.translate(x, y); ctx.rotate((hash(i + 3) - .5) * (y >= rest ? .6 : t * 2)); cross(0, 0, 0.9, i % 3 ? '#a0703c' : '#c7ccd1', i % 2 ? C.red : '#2f4fa8'); ctx.restore();
+  }
+  const a = backOut(prog(lt, 0.2, 0.8));
+  ctx.save(); ctx.translate(540, 520); ctx.scale(a, a);
+  box(-400, -170, 800, 340, C.paper, 22);
+  text(indian(87000 * easeOut(prog(lt, 0.3, 3))) + '+', 0, -30, 190, C.red);
+  text('SHAHEED • WW2', 0, 110, 52, C.ink, { font: 'Poppins', weight: 800, ls: 3 });
+  ctx.restore();
+  if (lt > 3.7) {
+    const b = backOut(prog(lt, 3.7, 4.3));
+    ctx.save(); ctx.translate(540, 1000); ctx.scale(b, b);
+    box(-400, -150, 800, 300, C.gold, 22);
+    text('30+', 0, -30, 170, C.ink);
+    text('VICTORIA CROSS', 0, 95, 52, C.ink, { font: 'Poppins', weight: 800, ls: 3 });
+    ctx.restore();
+  }
+}
+
+function sGate(lt) {
+  sky('#e08a3a', '#2a160c');
+  box(220, 1000, 640, 640, '#f6b75c', 0, 0.35);
+  box(-10, 1380, W + 20, 600, '#2a1d12', 0);
+  // India Gate assembled from boxes, bottom-up
+  const blocks = [];
+  blocks.push([200, 1330, 680, 50]);                                    // plinth
+  for (let r = 0; r < 8; r++) { blocks.push([260, 1330 - (r + 1) * 70, 200, 70]); blocks.push([620, 1330 - (r + 1) * 70, 200, 70]); } // pillars
+  blocks.push([460, 830, 160, 50]); blocks.push([420, 790, 240, 40]);   // arch steps
+  blocks.push([240, 720, 600, 80]);                                     // beam
+  blocks.push([260, 650, 560, 70]);
+  blocks.push([340, 590, 400, 60]);
+  blocks.push([400, 530, 280, 60]);
+  blocks.push([470, 490, 140, 40]);
+  blocks.forEach(([x, y, w, h], i) => {
+    const p = easeOut(prog(lt, 0.1 + i * 0.09, 0.5 + i * 0.09)); if (p <= 0) return;
+    box(x, y - (1 - p) * 500, w, h - 4, '#c98a5a', 14, p);
+  });
+  if (lt > 2.6) chip('INDIA GATE', 540, 710, 40, C.paper, C.ink, { d: 6 });
+  // diyas/flame
+  if (lt > 2.4) for (let i = 0; i < 5; i++) { const fx = 470 + i * 35, f = Math.sin(lt * 14 + i) * 6; box(fx, 1290, 22, 14, '#7a4a22', 4); box(fx + 5, 1262 + f, 12, 24 - f, C.gold, 3); box(fx + 8, 1270 + f, 6, 12, '#fff2b0'); }
+  // ranks of soldiers saluting at sides
+  for (let i = 0; i < 3; i++) { soldier(110 + i * 20, 1420 + i * 60, 1.6 + i * .2, { uniform: C.khaki }); soldier(970 - i * 20, 1420 + i * 60, 1.6 + i * .2, { uniform: C.olive, flip: true, helmet: i === 1 }); }
+  // finale
+  if (lt > 4.2) {
+    const a = backOut(prog(lt, 4.2, 4.8));
+    ctx.save(); ctx.translate(540, 260); ctx.scale(a, a);
+    box(-360, -95, 720, 62, C.saffron, 0); box(-360, -33, 720, 62, C.white, 0); box(-360, 29, 720, 62, C.green, 0);
+    text('JAI HIND', 0, 2, 120, C.ink, { ls: 8 });
+    ctx.restore();
+  }
+}
+
+/* ---------- timeline ---------- */
+const SCENES = [
+  [0, 6, sTitle, ''], [6, 14, sShip, '1914'], [14, 24, sCount13, '1914'], [24, 34, sTrench, '1914'],
+  [34, 42, sMap1, '1918'], [42, 48, sGraves, '1918'], [48, 56, sWW2, '1939'], [56, 66, sFronts, '1944'],
+  [66, 74, sNoor, '1944'], [74, 82, sHonours, '1945'], [82, 90, sGate, '']
+];
+const CAPS = [
+  [1.2, 5.8, 'Ek kahani jo history books mein *chhoti* reh gayi...'],
+  [6.3, 10.0, 'Saal *1914*. Europe mein pehla World War shuru hua.'],
+  [10.0, 13.8, 'Aur India se jahaaz nikal pade — *British Empire* ke liye ladne.'],
+  [14.3, 19.0, 'WW1 mein lagbhag *13 lakh* Indians ne service di.'],
+  [19.0, 23.8, 'British Empire ki kisi bhi colony se *sabse zyada!*'],
+  [24.3, 29.0, 'France ke trenches — *thand*, keechad aur goliyon ki baarish.'],
+  [29.0, 33.8, '*Khudadad Khan* — Victoria Cross jeetne wale pehle Indian soldier.'],
+  [34.3, 38.0, 'France, Gallipoli, Mesopotamia, East Africa — *har front* pe Indian jawan.'],
+  [38.0, 41.8, '1918 — *Haifa* mein Indian ghudsawar lancers ne shehar jeet liya.'],
+  [42.3, 47.8, 'Par *74,000* se zyada jawan kabhi ghar wapas nahi aaye.'],
+  [48.3, 52.0, 'Phir aaya *1939*. Duniya ek baar phir jung mein.'],
+  [52.0, 55.8, '*25 lakh* Indians — itihaas ki sabse badi *volunteer army!*'],
+  [56.3, 61.0, 'North Africa ke registan, *Italy* ke pahaad, *Burma* ke jungle...'],
+  [61.0, 65.8, '1944 — *Kohima* aur *Imphal* mein Japan ki fauj ko India ki seema pe roka gaya.'],
+  [66.3, 70.0, '*Noor Inayat Khan* — Nazi-occupied Paris mein secret radio operator.'],
+  [70.0, 73.8, 'Unki bahaduri ke liye unhe *George Cross* mila.'],
+  [74.3, 78.0, 'WW2 mein *87,000* se zyada Indian soldiers shaheed hue.'],
+  [78.0, 81.8, 'Aur Indian Army ne *30+ Victoria Cross* jeete.'],
+  [82.3, 86.0, 'Delhi ka *India Gate* — inhi shaheedon ki yaad mein.'],
+  [86.0, 89.8, 'Unki kahani yaad rakho. *Jai Hind.*']
+];
+
+function captions(t) {
+  const cap = CAPS.find(c => t >= c[0] && t < c[1]); if (!cap) return;
+  const lt = t - cap[0], out = cap[1] - t;
+  const words = cap[2].split(' ').map(w => ({ hi: w.includes('*'), w: w.replace(/\*/g, '') }));
+  // a highlight run like *30+ Victoria Cross* spans several words
+  let inHi = false; cap[2].split(' ').forEach((w, i) => { const st = w.startsWith('*'), en = w.endsWith('*') || w.replace(/[!.,]$/, '').endsWith('*'); if (st) inHi = true; words[i].hi = inHi; if (en) inHi = false; });
+  const size = 56; ctx.font = `800 ${size}px Poppins`;
+  const maxW = 880, lines = [[]]; let lw = 0; const sp = ctx.measureText(' ').width;
+  words.forEach(o => { o.m = ctx.measureText(o.w).width; if (lw + o.m > maxW && lines[lines.length - 1].length) { lines.push([]); lw = 0; } lines[lines.length - 1].push(o); lw += o.m + sp; });
+  const lh = 74, h = lines.length * lh + 50, y0 = 1700 - h / 2;
+  const pop = backOut(clamp(lt / 0.25)), fade = clamp(out / 0.2);
+  ctx.save(); ctx.translate(540, 1700); ctx.scale(pop, pop); ctx.translate(-540, -1700); ctx.globalAlpha = fade;
+  box(70, y0, 940, h, C.paper, 16); ctx.globalAlpha = fade;
+  ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+  let wi = 0; const shown = Math.floor(lt / 0.09) + 1; // words appear like a typewriter
+  lines.forEach((ln, li) => {
+    const tw = ln.reduce((s, o) => s + o.m, 0) + sp * (ln.length - 1); let x = 540 - tw / 2; const y = y0 + 25 + lh * li + lh / 2;
+    ln.forEach(o => {
+      ctx.font = `800 ${size}px Poppins`;
+      const vis = wi < shown; wi++;
+      if (vis) {
+        if (o.hi) { box(x - 8, y - 34, o.m + 16, 66, C.red, 0, fade); ctx.fillStyle = C.white; } else ctx.fillStyle = C.ink;
+        ctx.globalAlpha = fade; ctx.fillText(o.w, x, y + 4);
+      }
+      x += o.m + sp;
+    });
+  });
+  ctx.restore(); ctx.globalAlpha = 1;
+}
+
+function hud(t, si) {
+  // story-style progress segments
+  const segW = (W - 80 - (SCENES.length - 1) * 8) / SCENES.length;
+  SCENES.forEach(([a, b], i) => {
+    const x = 40 + i * (segW + 8);
+    ctx.fillStyle = 'rgba(239,226,192,.25)'; ctx.fillRect(x, 40, segW, 8);
+    ctx.fillStyle = C.paper; ctx.fillRect(x, 40, segW * clamp((t - a) / (b - a)), 8);
+  });
+  chip('ITIHAAS IN BOXES', 40, 110, 28, C.ink, C.paper, { align: 'left', d: 5 });
+  const yr = SCENES[si][3];
+  if (yr) chip(yr, W - 120, 110, 34, C.red, C.white, { d: 5 });
+}
+
+let grain;
+function makeGrain() {
+  grain = document.createElement('canvas'); grain.width = grain.height = 256;
+  const g = grain.getContext('2d'), im = g.createImageData(256, 256), r = rng(42);
+  for (let i = 0; i < im.data.length; i += 4) { const v = r() * 255; im.data[i] = im.data[i + 1] = im.data[i + 2] = v; im.data[i + 3] = 14; }
+  g.putImageData(im, 0, 0);
+}
+function post(t) {
+  const f = Math.floor(t * 8), ox = hash(f) * 256, oy = hash(f + 1) * 256;
+  ctx.save(); ctx.translate(-ox, -oy); ctx.fillStyle = ctx.createPattern(grain, 'repeat'); ctx.fillRect(0, 0, W + 256, H + 256); ctx.restore();
+  const v = ctx.createRadialGradient(540, 960, 500, 540, 960, 1250); v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,.55)');
+  ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
+}
+function boxWipe(t) { // grid of boxes closes and opens around each cut
+  const cell = 135, win = 0.38;
+  for (let k = 1; k < SCENES.length; k++) {
+    const dt = t - SCENES[k][0]; if (Math.abs(dt) > win + 0.25) continue;
+    for (let gy = 0; gy < Math.ceil(H / cell); gy++) for (let gx = 0; gx < Math.ceil(W / cell); gx++) {
+      const stagger = (gx + gy) / 22 * 0.25, d = Math.abs(dt + (dt < 0 ? stagger : -stagger));
+      const s = clamp(1 - (d - 0.0) / win) * cell; if (s <= 0) continue;
+      ctx.fillStyle = k % 2 ? C.ink : '#2a1f13';
+      ctx.fillRect(gx * cell + (cell - s) / 2, gy * cell + (cell - s) / 2, s + 1, s + 1);
+    }
+  }
+  // fade in / out
+  const a = Math.max(1 - t / 0.5, (t - (DUR - 0.6)) / 0.6);
+  if (a > 0) { ctx.fillStyle = `rgba(0,0,0,${clamp(a)})`; ctx.fillRect(0, 0, W, H); }
+}
+
+function renderFrame(t) {
+  t = clamp(t, 0, DUR - 1e-4);
+  const si = SCENES.findIndex(s => t >= s[0] && t < s[1]);
+  const [a, , fn] = SCENES[si];
+  ctx.save(); ctx.clearRect(0, 0, W, H);
+  // gentle "ken burns" push on every scene
+  const lt = t - a, z = 1 + lt * 0.006; ctx.translate(540, 960); ctx.scale(z, z); ctx.translate(-540, -960);
+  fn(lt); ctx.restore();
+  hud(t, si);
+  captions(t);
+  post(t);
+  boxWipe(t);
+}
+
+window.DUR = DUR;
+window.renderFrame = renderFrame;
+window.ready = document.fonts.load('100px Anton').then(() => document.fonts.load('800 50px Poppins')).then(() => document.fonts.load('600 50px Poppins')).then(() => { makeGrain(); renderFrame(0); return true; });
+
+/* Preview mode: autoplay with click-to-pause. render.js passes ?render to drive frames itself. */
+if (!location.search.includes('render')) {
+  let start = null, paused = false, pt = 0;
+  cv.addEventListener('click', () => { paused = !paused; if (!paused) start = performance.now() - pt * 1000; });
+  window.ready.then(() => {
+    const loop = now => { if (start === null) start = now; if (!paused) { pt = ((now - start) / 1000) % DUR; renderFrame(pt); } requestAnimationFrame(loop); };
+    requestAnimationFrame(loop);
+  });
+} else document.body.classList.add('render');
+</script>
+</body>
+</html>
