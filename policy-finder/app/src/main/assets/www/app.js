@@ -9,7 +9,7 @@
 
   if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'lib/pdf.worker.min.js';
 
-  const S = { products: [], docs: [], grids: [], rules: [], vehicles: [], schemes: [], tab: 'search', query: '', cat: '' };
+  const S = { products: [], docs: [], grids: [], rules: [], vehicles: [], schemes: [], cases: [], tab: 'search', query: '', cat: '' };
 
   const ICON = {
     search: '<svg viewBox="0 0 24 24"><path d="M10 2a8 8 0 0 1 6.3 12.9l5.4 5.4-1.4 1.4-5.4-5.4A8 8 0 1 1 10 2zm0 2a6 6 0 1 0 0 12 6 6 0 0 0 0-12z"/></svg>',
@@ -42,7 +42,8 @@
       for (const x of SEED.vehicles) await DB.put('vehicles', { ...x });
       await DB.put('meta', { id: 'seeded2', at: Date.now() });
     }
-    [S.products, S.docs, S.grids, S.rules, S.vehicles, S.schemes] = await Promise.all(['products', 'docs', 'grids', 'rules', 'vehicles', 'schemes'].map(DB.all));
+    [S.products, S.docs, S.grids, S.rules, S.vehicles, S.schemes, S.cases] = await Promise.all(['products', 'docs', 'grids', 'rules', 'vehicles', 'schemes', 'cases'].map(DB.all));
+    S.cases.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
     S.vehicles.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     S.schemes.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     S.products.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
@@ -99,7 +100,7 @@
         let input;
         if (f.type === 'textarea') input = `<textarea class="input" data-k="${f.k}" placeholder="${esc(f.ph || '')}">${v}</textarea>`;
         else if (f.type === 'select') input = `<select class="input" data-k="${f.k}">${f.options().map(o => `<option value="${esc(o[0])}" ${o[0] === draft[f.k] ? 'selected' : ''}>${esc(o[1])}</option>`).join('')}</select>`;
-        else input = `<input class="input" data-k="${f.k}" value="${v}" placeholder="${esc(f.ph || '')}" ${f.list ? `list="dl-${f.k}"` : ''}>${f.list ? `<datalist id="dl-${f.k}">${f.list().map(o => `<option value="${esc(o)}">`).join('')}</datalist>` : ''}`;
+        else input = `<input class="input" type="${f.inputType || 'text'}" ${f.inputmode ? `inputmode="${f.inputmode}"` : ''} data-k="${f.k}" value="${v}" placeholder="${esc(f.ph || '')}" ${f.list ? `list="dl-${f.k}"` : ''}>${f.list ? `<datalist id="dl-${f.k}">${f.list().map(o => `<option value="${esc(o)}">`).join('')}</datalist>` : ''}`;
         return `<label class="f">${esc(f.label)}</label>${input}${f.hint ? `<div class="hint">${esc(f.hint)}</div>` : ''}`;
       }).join('') + `<div class="btn-row" style="margin-top:16px"><button class="btn block" id="fSave">Save</button></div>` +
         (onDelete ? `<div class="btn-row"><button class="btn danger block" id="fDel">Delete</button></div>` : '');
@@ -317,6 +318,12 @@
       ]);
       if (r.score > 0.4) results.push({ kind: 'doc', item: d, ...r, page: bestPage(d, terms) });
     });
+    (S.cases || []).forEach(c => {
+      const prod = S.products.find(p => p.id === c.productId);
+      if (S.cat && !inCat(prod || {})) return;
+      const r = Search.scoreItem(terms, [{ text: c.customer, w: 5 }, { text: c.situation, w: 3 }, { text: c.vehicle, w: 3 }, { text: prod ? prod.name : '', w: 2 }, { text: c.tags, w: 2 }, { text: c.reason, w: 1 }, { text: c.caseNo, w: 4 }]);
+      if (r.score > 0.4) results.push({ kind: 'case', item: c, ...r, score: r.score * 0.9 });
+    });
     // Question like "can we do X without Y?" -> answer from uploaded policies
     const qa = QA.answer(query, S);
     S.lastQa = qa ? { query, qa } : null;
@@ -354,6 +361,7 @@
           <div class="row"><h3>${Search.highlight(it.title, terms)}</h3><span class="badge rule">${it.decision ? esc(VERDICT[it.decision][0]) : "Policy rule"}</span></div>
           <div class="snip">${Search.highlight(Search.snippet(it.solution, terms), terms)}</div>
           ${it.productId ? `<div class="meta" style="margin-top:4px">${esc(productName(it.productId))}</div>` : ''}</div>`;
+      if (res.kind === 'case') return caseLine(it, terms, true);
       if (res.kind === 'grid') return `<div class="card tap" data-open="grid" data-id="${it.id}" ${res.lookup ? `data-r="${res.lookup.r}" data-c="${res.lookup.c}"` : ''}>
           <div class="row"><h3>${Search.highlight(it.name, terms)}</h3><span class="badge grid">LTV grid</span></div>
           <div class="meta">${esc(it.rowLabel || '')} × ${esc(it.colLabel || '')}${res.lookup ? ` → <b>${esc(res.lookup.val || '—')}${res.lookup.val && it.unit && /\d$/.test(res.lookup.val) ? esc(it.unit) : ''}</b> (${esc(it.rows[res.lookup.r].label)}, ${esc(it.cols[res.lookup.c])})` : ''}</div></div>`;
@@ -379,12 +387,19 @@
       const src = sn.kind === 'doc' ? `📄 ${esc(sn.title)}${sn.page ? ' · page ' + sn.page : ''}` : sn.kind === 'rule' ? `${sn.mine ? '⭐ My rule' : '💡 Rule'}: ${esc(sn.title)}${sn.ref ? ' · 📄 ' + esc(sn.ref) : ''}` : `📋 ${esc(sn.title)} – ${esc(sn.field)}`;
       return `<div class="ev tap" ${open}><div class="q">“${Search.highlight(sn.text, terms)}”</div><div class="src">${src}${r.v ? ` · <b class="v-${r.v}">${esc(r.why)}</b>` : ''}${sn.sample ? ' · SAMPLE' : ''}</div></div>`;
     }).join('');
+    const pc = a.past;
+    const D_ICON = { YES: '✅', NO: '❌', COND: '⚠️' };
+    const pastHtml = pc ? `<div class="why">Similar past cases (${pc.total}): ${pc.counts.YES ? `✅ ${pc.counts.YES} approved ` : ''}${pc.counts.COND ? `⚠️ ${pc.counts.COND} with conditions ` : ''}${pc.counts.NO ? `❌ ${pc.counts.NO} rejected` : ''}</div>
+      ${a.caseConflict ? '<div class="notice" style="margin:4px 0 8px">Past decisions differ from the policy text – check which is current.</div>' : ''}
+      ${pc.list.slice(0, 3).map(x => caseLine(x.c, terms)).join('')}` : '';
     return `<div class="answer v-${a.verdict}">
-      <div class="verdict">${big}</div><div class="vsub">${sub}</div>
+      <div class="verdict">${big}</div><div class="vsub">${a.fromCases ? `Based on ${pc.total} similar past case${pc.total > 1 ? 's' : ''} (no clear policy line found)` : sub}</div>
       ${a.lacking.length ? `<div class="meta">Missing: <b>${esc(a.lacking.join(' '))}</b></div>` : ''}
-      ${ev ? `<div class="why">Why – from your documents:</div>${ev}` : `<div class="meta" style="margin-top:6px">Upload the policy PDF / photo that covers this. For photos and scanned PDFs, run More → “Read text from photos &amp; scanned PDFs”.</div>`}
-      <div class="disc">${a.fromRule ? 'Decision from your saved policy rule.' : 'Read automatically from your files. Always confirm with the full circular before sanction.'}</div>
-      <button class="btn secondary small" data-saverule style="margin-top:8px">${a.fromRule ? '✎ Change this rule' : '⭐ Save my decision for this situation'}</button>
+      ${a.fromCases ? pastHtml : ''}
+      ${ev ? `<div class="why">Why – from your documents:</div>${ev}` : (a.fromCases ? '' : `<div class="meta" style="margin-top:6px">Upload the policy PDF / photo that covers this. For photos and scanned PDFs, run More → “Read text from photos &amp; scanned PDFs”.</div>`)}
+      ${a.fromCases ? '' : pastHtml}
+      <div class="disc">${a.fromRule ? 'Decision from your saved policy rule.' : a.fromCases ? 'Learned from your past loan cases. Confirm with current policy.' : 'Read automatically from your files. Always confirm with the full circular before sanction.'}</div>
+      <div class="btn-row"><button class="btn secondary small" data-saverule>${a.fromRule ? '✎ Change this rule' : '⭐ Save my decision'}</button><button class="btn secondary small" data-savecase>📝 Record as past case</button></div>
     </div>`;
   }
 
@@ -400,6 +415,13 @@
 
   // global click delegation for cards
   document.addEventListener('click', e => {
+    if (e.target.closest('[data-savecase]')) {
+      const last = S.lastQa; if (!last) return;
+      const map = { NO: 'Rejected', YES: 'Approved', COND: 'Approved with conditions' };
+      const prodHit = S.products.map(p => ({ p, r: Search.scoreItem(last.qa.topic || [], [{ text: p.name + ' ' + (p.keywords || ''), w: 1 }]) })).filter(x => x.r.matched).sort((a, b) => b.r.score - a.r.score)[0];
+      editCase(null, { situation: last.query.replace(/\s*\?+\s*$/, ''), decision: map[last.qa.verdict] || '', date: new Date().toISOString().slice(0, 10), productId: prodHit ? prodHit.p.id : '' });
+      return;
+    }
     if (e.target.closest('[data-saverule]')) {
       const last = S.lastQa; if (!last) return;
       if (last.qa.fromRule) { editRule(last.qa.fromRule); return; }
@@ -423,6 +445,7 @@
     else if (kind === 'grid') { const g = S.grids.find(x => x.id === id); if (g) openGrid(g, el.dataset.r != null ? { r: +el.dataset.r, c: +el.dataset.c } : null); }
     else if (kind === 'doc') { const d = S.docs.find(x => x.id === id); if (d) openDoc(d, +el.dataset.page || 1); }
     else if (kind === 'vcalc') openVehicleCalc({ vehicleId: id, year: +el.dataset.year || null, tenure: +el.dataset.tenure || null });
+    else if (kind === 'case') { const c = S.cases.find(x => x.id === id); if (c) openCase(c); }
     else if (kind === 'scheme') { const sc = S.schemes.find(x => x.id === id); if (sc) editScheme(sc); }
     else if (kind === 'vehicle') { const v = S.vehicles.find(x => x.id === id); if (v) editVehicle(v); }
   });
@@ -881,6 +904,11 @@
       <button class="btn block" id="addRule" style="margin-bottom:8px">+ Add new policy rule</button>
       ${S.rules.map(r => `<div class="card tap" data-open="rule" data-id="${r.id}"><div class="row"><h3>${esc(r.title)}</h3>${r.decision ? `<span class="badge rule">${esc(VERDICT[r.decision][0])}</span>` : ''}</div><div class="snip">${esc(Search.snippet(r.solution, [], 120))}</div></div>`).join('')}
 
+      <div class="section-title">Past loan cases (app learns from these) <span>${S.cases.length}</span></div>
+      <div class="hint" style="margin:0 4px 8px">Record real cases: customer, situation, what was decided and why. New questions show similar past cases, and when the policy text is not clear the app decides from them.</div>
+      <div class="btn-row"><button class="btn small" id="addCase">+ Add past case</button><button class="btn small secondary" id="listCases">View / import cases</button></div>
+      ${S.cases.slice(0, 3).map(c => caseLine(c, null, true)).join('')}
+
       <div class="section-title">Tools</div>
       <button class="btn secondary block" id="emi">EMI / PF / LTV calculator</button>
 
@@ -904,6 +932,8 @@
       </div>
       <div class="meta" style="text-align:center;margin-top:16px">Policy Finder · works offline</div>`;
     $('#addRule').onclick = () => editRule(null);
+    $('#addCase').onclick = () => editCase(null, { date: new Date().toISOString().slice(0, 10) });
+    $('#listCases').onclick = openCaseList;
     $('#ocrAll').onclick = async e => {
       const todo = S.docs.filter(d => !(d.text || '').trim());
       const msg = $('#ocrAllMsg');
@@ -927,7 +957,7 @@
     $('#wipe').onclick = async () => {
       if (!confirm('Delete ALL products, policies, grids and situations from this phone?')) return;
       if (!confirm('Are you sure? Export a backup first if you need it.')) return;
-      for (const st of ['products', 'docs', 'files', 'grids', 'rules', 'vehicles', 'schemes']) await DB.clear(st);
+      for (const st of ['products', 'docs', 'files', 'grids', 'rules', 'vehicles', 'schemes', 'cases']) await DB.clear(st);
       await loadAll(); renderTab(); toast('All data deleted');
     };
   }
@@ -950,7 +980,7 @@
   async function exportBackup() {
     toast('Preparing backup…');
     const data = { app: 'policy-finder', version: 1, exported: new Date().toISOString() };
-    for (const st of ['products', 'grids', 'rules', 'docs', 'vehicles', 'schemes']) data[st] = await DB.all(st);
+    for (const st of ['products', 'grids', 'rules', 'docs', 'vehicles', 'schemes', 'cases']) data[st] = await DB.all(st);
     const files = await DB.all('files');
     data.files = [];
     for (const f of files) data.files.push({ id: f.id, name: f.name, type: f.type, data: await blobToB64(f.blob) });
@@ -962,7 +992,7 @@
       const data = JSON.parse(await file.text());
       if (!data || (data.app !== 'policy-finder' && !data.products)) throw new Error('Not a Policy Finder backup');
       let n = 0;
-      for (const st of ['products', 'grids', 'rules', 'docs', 'vehicles', 'schemes']) for (const x of (data[st] || [])) { await DB.put(st, x); n++; }
+      for (const st of ['products', 'grids', 'rules', 'docs', 'vehicles', 'schemes', 'cases']) for (const x of (data[st] || [])) { await DB.put(st, x); n++; }
       for (const f of (data.files || [])) await DB.put('files', { id: f.id, name: f.name, type: f.type, blob: b64ToBlob(f.data, f.type) });
       await loadAll(); renderTab(); toast(`Imported ${n} items`);
     } catch (e) { toast('Import failed: ' + e.message, 4000); }
@@ -1226,6 +1256,110 @@
       };
       draw();
       actionBtn(actions, ICON.save, 'Save', () => $('#scSave', body).click());
+    });
+  }
+
+  // ---------- PAST LOAN CASES (learning) ----------
+  const CASE_DECISIONS = [['Approved', '✅ Approved'], ['Approved with conditions', '⚠️ Approved with conditions'], ['Rejected', '❌ Rejected']];
+  const CASE_FIELDS = [
+    { k: 'customer', label: 'Customer name', required: true, ph: 'e.g. Ramesh Kumar' },
+    { k: 'date', label: 'Date', inputType: 'date' },
+    { k: 'caseNo', label: 'Application / loan no. (optional)' },
+    { k: 'productId', label: 'Product', type: 'select', options: productOptions },
+    { k: 'vehicle', label: 'Vehicle / asset (optional)', ph: 'e.g. Tata LPT 1109, 2019 model', list: () => S.vehicles.map(v => v.name) },
+    { k: 'situation', label: 'Situation / customer profile', type: 'textarea', required: true, ph: 'e.g. FTU, no property proof, rented house, CIBIL 690, guarantor brother with own house' },
+    { k: 'decision', label: 'Decision taken', type: 'select', options: () => CASE_DECISIONS },
+    { k: 'reason', label: 'Reason / conditions', type: 'textarea', ph: 'e.g. Approved at 70% LTV with guarantor property proof, ROI +1%' },
+    { k: 'amount', label: 'Loan amount (₹)', inputmode: 'decimal' },
+    { k: 'roi', label: 'ROI %', inputmode: 'decimal' },
+    { k: 'tenure', label: 'Tenure (months)', inputmode: 'numeric' },
+    { k: 'ltv', label: 'LTV %', inputmode: 'decimal' },
+    { k: 'tags', label: 'Keywords (optional)', ph: 'extra words to find this case' },
+  ];
+  const CASE_CLS = { Approved: 'v-YES', Rejected: 'v-NO', 'Approved with conditions': 'v-COND' };
+  const CASE_ICON = { Approved: '✅', Rejected: '❌', 'Approved with conditions': '⚠️' };
+  function fmtDate(d) { if (!d) return ''; const x = new Date(d); return isNaN(x) ? d : x.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }); }
+  function caseLine(c, terms, asCard) {
+    const h = t => terms ? Search.highlight(t || '', terms) : esc(t || '');
+    const facts = [c.amount ? fmtINR(num(c.amount)) : '', c.roi ? c.roi + '%' : '', c.tenure ? c.tenure + ' m' : '', c.ltv ? 'LTV ' + c.ltv + '%' : ''].filter(Boolean).join(' · ');
+    const inner = `<div class="row"><b class="ellip">${h(c.customer)}</b><b class="${CASE_CLS[c.decision] || ''}" style="white-space:nowrap">${CASE_ICON[c.decision] || ''} ${esc(c.decision || '')}</b></div>
+      <div class="meta">${esc([fmtDate(c.date), productName(c.productId), c.vehicle].filter(Boolean).join(' · '))}</div>
+      <div class="snip">${h(Search.snippet(c.situation || '', terms || [], 160))}</div>
+      ${c.reason ? `<div class="meta" style="margin-top:2px">→ ${h(Search.snippet(c.reason, terms || [], 140))}</div>` : ''}
+      ${facts ? `<div class="meta">${esc(facts)}</div>` : ''}`;
+    return asCard ? `<div class="card tap" data-open="case" data-id="${c.id}"><span class="badge" style="float:right;margin-left:6px">Past case</span>${inner}</div>`
+      : `<div class="ev tap" data-open="case" data-id="${c.id}">${inner}</div>`;
+  }
+  const editCase = (c, prefill) => formSheet(c ? 'Edit past case' : 'New past case', CASE_FIELDS, c || { decision: 'Approved', ...(prefill || {}) },
+    d => { if (!d.decision) d.decision = 'Approved'; return DB.put('cases', d); }, c ? () => DB.del('cases', c.id) : null);
+
+  function openCase(c0) {
+    openSheet('Past case', (body, actions, setTitle) => {
+      const c = S.cases.find(x => x.id === c0.id);
+      if (!c) { closeSheet(); return; }
+      stack[stack.length - 1].isDetail = true;
+      setTitle(c.customer || 'Past case');
+      actionBtn(actions, ICON.edit, 'Edit', () => editCase(c));
+      const rows = CASE_FIELDS.filter(f => c[f.k] && f.k !== 'customer').map(f => `<tr><td>${esc(f.label)}</td><td class="pre">${esc(f.k === 'productId' ? productName(c.productId) : f.k === 'date' ? fmtDate(c.date) : c[f.k])}</td></tr>`).join('');
+      const sim = QA.similarCases(c.situation + ' ' + (c.vehicle || '') + ' ' + productName(c.productId), { ...S, cases: S.cases.filter(x => x.id !== c.id) });
+      body.innerHTML = `<div class="answer ${CASE_CLS[c.decision] || ''}" style="padding:10px 14px"><div class="verdict" style="font-size:20px">${CASE_ICON[c.decision] || ''} ${esc(c.decision || '')}</div><div class="vsub">${esc(c.customer)}</div></div>
+        <div class="card"><table class="detail-table">${rows}</table></div>
+        ${sim ? `<div class="section-title">Similar past cases <span>${sim.total}</span></div>${sim.list.map(x => caseLine(x.c, null, true)).join('')}` : ''}`;
+    });
+  }
+
+  function openCaseList() {
+    openSheet('Past loan cases', body => {
+      body.innerHTML = `<input class="input" id="cf" placeholder="Search name, vehicle, situation…" style="margin:0 0 8px">
+        <div class="chips" id="cdec" style="padding-top:0;margin-bottom:6px">${['All', 'Approved', 'Approved with conditions', 'Rejected'].map((d, i) => `<button class="chip ${i ? '' : 'on'}" data-d="${i ? d : ''}">${i ? CASE_ICON[d] + ' ' : ''}${d}</button>`).join('')}</div>
+        <div id="cl"></div>
+        <div class="section-title">Bulk add from Excel</div>
+        <div class="hint">Copy rows from Excel and paste. First row = headings, e.g. <b>Customer, Date, Product, Vehicle, Situation, Decision, Reason, Amount, ROI, Tenure, LTV</b>. Decision: Approved / Rejected / Conditional.</div>
+        <textarea class="input" id="cPaste" placeholder="Customer&#9;Date&#9;Product&#9;Vehicle&#9;Situation&#9;Decision&#9;Reason"></textarea>
+        <button class="btn secondary small" id="cImport" style="margin-top:6px">Import pasted cases</button>
+        <div class="btn-row" style="margin-top:12px"><button class="btn small" id="cAdd">+ Add past case</button></div>`;
+      let dec = '';
+      const draw = () => {
+        const q = $('#cf', body).value.trim();
+        const terms = q ? Search.queryTerms(q) : null;
+        let list = S.cases.filter(c => !dec || c.decision === dec);
+        if (terms) list = list.map(c => ({ c, r: Search.scoreItem(terms, [{ text: c.customer, w: 5 }, { text: c.situation, w: 3 }, { text: c.vehicle, w: 3 }, { text: productName(c.productId), w: 2 }, { text: c.reason, w: 1 }, { text: c.caseNo, w: 4 }, { text: c.tags, w: 2 }]) })).filter(x => x.r.score > 0.4).sort((a, b) => b.r.score - a.r.score).map(x => x.c);
+        $('#cl', body).innerHTML = list.slice(0, 300).map(c => caseLine(c, terms, true)).join('') || '<div class="meta" style="padding:6px">No cases yet.</div>';
+      };
+      $('#cf', body).oninput = debounce(draw, 120);
+      $('#cdec', body).onclick = e => { const b = e.target.closest('.chip'); if (!b) return; dec = b.dataset.d; $$('.chip', $('#cdec', body)).forEach(x => x.classList.toggle('on', x === b)); draw(); };
+      $('#cAdd', body).onclick = () => editCase(null, { date: new Date().toISOString().slice(0, 10) });
+      $('#cImport', body).onclick = async () => {
+        const lines = $('#cPaste', body).value.replace(/\r/g, '').split('\n').filter(l => l.trim());
+        if (lines.length < 2) { toast('Paste a heading row and at least one case'); return; }
+        const sep = lines[0].includes('\t') ? '\t' : (lines[0].includes(';') ? ';' : ',');
+        const head = lines[0].split(sep).map(h => h.trim().toLowerCase());
+        const col = re => head.findIndex(h => re.test(h));
+        const ix = {
+          customer: col(/customer|name|applicant|borrower/), date: col(/date/), caseNo: col(/app|loan\s*no|case\s*no|lan|number/), product: col(/product|scheme/),
+          vehicle: col(/vehicle|model|asset/), situation: col(/situation|profile|case\s*detail|remark|details|observation/), decision: col(/decision|status|result|outcome/),
+          reason: col(/reason|condition|comment|note/), amount: col(/amount|loan\s*amt|sanction/), roi: col(/roi|rate|interest/), tenure: col(/tenure|tenor|months/), ltv: col(/ltv/)
+        };
+        if (ix.customer < 0 || ix.situation < 0) { toast('Need “Customer” and “Situation” columns'); return; }
+        const normDec = v => { v = (v || '').toLowerCase(); if (/rej|decl|^no\b|not/.test(v)) return 'Rejected'; if (/cond|deviat|with/.test(v)) return 'Approved with conditions'; return v ? 'Approved' : ''; };
+        const normDate = v => { if (!v) return ''; const m = v.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/); if (m) { const y = m[3].length === 2 ? '20' + m[3] : m[3]; return `${y}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`; } return v; };
+        let n = 0;
+        for (const l of lines.slice(1)) {
+          const c = l.split(sep).map(x => x.trim());
+          const g = k => ix[k] >= 0 ? (c[ix[k]] || '') : '';
+          if (!g('customer') && !g('situation')) continue;
+          const prodTxt = g('product').toLowerCase();
+          const prod = prodTxt ? S.products.find(p => p.name.toLowerCase() === prodTxt || p.name.toLowerCase().includes(prodTxt) || prodTxt.includes(p.name.toLowerCase().replace(/\s+loan$/, ''))) : null;
+          await DB.put('cases', {
+            customer: g('customer'), date: normDate(g('date')), caseNo: g('caseNo'), productId: prod ? prod.id : '', vehicle: g('vehicle'),
+            situation: g('situation') + (prodTxt && !prod ? ` (${g('product')})` : ''), decision: normDec(g('decision')) || 'Approved', reason: g('reason'),
+            amount: g('amount'), roi: g('roi'), tenure: g('tenure'), ltv: g('ltv')
+          });
+          n++;
+        }
+        await loadAll(); draw(); renderTab(); toast(`${n} cases imported`);
+      };
+      draw();
     });
   }
 

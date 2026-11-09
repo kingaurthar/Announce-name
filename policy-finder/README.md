@@ -16,6 +16,13 @@ Offline policy finder for NBFC field / branch use. Everything is stored on the p
   (e.g. “Used car loan without RC”), decision (NO / YES / ONLY WITH CONDITIONS), reason, and policy reference.
   When a question matches, the app gives exactly that decision first (⭐ My rule). Every answer also has a
   **⭐ Save my decision for this situation** button, so you can lock in or correct an answer with one tap.
+- **Past loan cases – the app learns from them** – *More → Past loan cases*: customer name, date, product, vehicle,
+  situation, decision (Approved / Approved with conditions / Rejected), reason, amount, ROI, tenure, LTV.
+  Add one by one, tap **📝 Record as past case** on any answer, or paste many rows from Excel.
+  Every answer shows similar past cases (e.g. “❌ 2 rejected, ⚠️ 1 with conditions”). Priority: ⭐ your rules →
+  policy documents → past cases. When no policy line is found, the decision comes from the past cases;
+  if past cases differ from the policy, the app warns you. Search a customer name to find their case.
+  Customer data stays on the phone only (it is included in backups – keep backup files safe).
 - **Reads text from photos & scanned PDFs (OCR, offline)** – done automatically on upload; for older files use
   *More → Read text from photos & scanned PDFs*. Each file shows the text it read, so you can check it.
 - **Vehicle loan check** – choose a vehicle model + manufacturing year + tenure and get the **max loan amount, max tenure, rate (ROI), LTV and EMI**.

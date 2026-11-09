@@ -136,14 +136,61 @@ const QA = (() => {
     return best;
   }
 
+  /*
+   * Learning from past loan cases: find cases with a similar situation and
+   * see what was decided (approved / rejected / approved with conditions).
+   */
+  const CASE_V = { Approved: 'YES', Rejected: 'NO', 'Approved with conditions': 'COND' };
+  function similarCases(query, S) {
+    const cases = S.cases || [];
+    if (!cases.length) return null;
+    const lacking = lackingTerms(query);
+    const topic = Search.queryTerms(query).filter(t => !FILLER.has(t));
+    if (!topic.length) return null;
+    const pname = id => (S.products.find(p => p.id === id) || {}).name || '';
+    const list = [];
+    cases.forEach(c => {
+      const r = Search.scoreItem(topic, [{ text: c.situation, w: 3 }, { text: c.vehicle, w: 2.5 }, { text: pname(c.productId), w: 2 }, { text: c.tags, w: 2 }, { text: c.reason, w: 1 }]);
+      if (!r.matched) return;
+      let sim = r.coverage;
+      if (lacking.length) {
+        const cl = lackingTerms((c.situation || '') + ' ');
+        if (cl.length && mentions(lacking, cl.join(' ') + ' ' + (c.tags || ''))) sim += 0.35;
+        else if (mentions(lacking, c.situation || '')) sim -= 0.25;   // case HAD the thing the customer is missing
+      } else if (lackingTerms((c.situation || '') + ' ').some(t => mentions([t], topic.join(' ')))) sim -= 0.4;   // case was MISSING something the question has
+      if (sim >= 0.5) list.push({ c, sim: Math.min(1, sim), score: r.score });
+    });
+    if (!list.length) return null;
+    list.sort((a, b) => b.sim - a.sim || b.score - a.score || (b.c.date || '').localeCompare(a.c.date || ''));
+    const top = list.slice(0, 5);
+    const counts = { YES: 0, NO: 0, COND: 0 };
+    const weight = { YES: 0, NO: 0, COND: 0 };
+    list.slice(0, 15).forEach(x => { const v = CASE_V[x.c.decision]; if (v) { counts[v]++; weight[v] += x.sim * x.sim; } });
+    const order = Object.keys(weight).sort((a, b) => weight[b] - weight[a]);
+    let verdict = order[0];
+    if (weight[order[0]] === weight[order[1]]) verdict = 'COND';
+    return { list: top, total: list.length, counts, verdict, best: top[0].sim };
+  }
+
   function answer(query, S) {
     const rm = ruleMatch(query, S);
     const res = evidence(query, S);
-    if (!rm) return res;
-    const r = rm.rule;
-    const ruleReason = { sn: { kind: 'rule', id: r.id, title: r.title, text: r.solution || r.title, ref: r.ref, mine: true }, v: r.decision, why: 'your saved policy rule', score: 99 };
-    const base = res || { reasons: [], topic: Search.queryTerms(query).filter(t => !FILLER.has(t)), lacking: lackingTerms(query) };
-    return { ...base, verdict: r.decision, fromRule: r, reasons: [ruleReason, ...base.reasons.filter(x => x.sn.id !== r.id).slice(0, 3)] };
+    const pc = similarCases(query, S);
+    let out = res;
+    if (rm) {
+      const r = rm.rule;
+      const ruleReason = { sn: { kind: 'rule', id: r.id, title: r.title, text: r.solution || r.title, ref: r.ref, mine: true }, v: r.decision, why: 'your saved policy rule', score: 99 };
+      const base = res || { reasons: [], topic: Search.queryTerms(query).filter(t => !FILLER.has(t)), lacking: lackingTerms(query) };
+      out = { ...base, verdict: r.decision, fromRule: r, reasons: [ruleReason, ...base.reasons.filter(x => x.sn.id !== r.id).slice(0, 3)] };
+    }
+    if (!out || !pc) return out ? { ...out, past: pc } : null;
+    out = { ...out, past: pc };
+    if (!out.fromRule && (out.verdict === 'UNCLEAR' || out.verdict === 'NOTFOUND') && pc.best >= 0.6) {
+      out.verdict = pc.verdict; out.fromCases = true;
+    } else if (pc.best >= 0.6 && pc.verdict !== out.verdict && !(out.verdict === 'UNCLEAR' || out.verdict === 'NOTFOUND')) {
+      out.caseConflict = true;
+    }
+    return out;
   }
 
   function evidence(query, S) {
@@ -212,5 +259,5 @@ const QA = (() => {
     return { verdict, reasons: ordered, topic, lacking };
   }
 
-  return { answer, isQuestion };
+  return { answer, isQuestion, similarCases, CASE_V };
 })();
