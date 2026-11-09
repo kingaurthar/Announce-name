@@ -10,7 +10,7 @@ Offline policy finder for **New Car, Used Car, New Commercial Vehicle and Used C
 - **Ask a question → YES / NO / ONLY WITH CONDITIONS, with the reason** – e.g.
   `need a tata 1109 vehicle loan but applicant has no property proof, can we do it?` → **NO**, quoting the exact
   line from your uploaded policy (“Property proof … is mandatory for all CV cases”) with document name and page.
-  Also compares limits: `pl for 70 year old?` (age 21–58 → NO), `tw loan with cibil 620?`.
+  Also compares limits: `car loan for 70 year old?` (age 21–65 → NO), `new car loan with cibil 620?`.
   Works fully offline from your PDFs, photos (read by OCR), product notes and saved situations.
 - **Add your own policy rule with a fixed decision** – *More → + Add new policy rule*: situation
   (e.g. “Used car loan without RC”), decision (NO / YES / ONLY WITH CONDITIONS), reason, and policy reference.
