@@ -896,3 +896,14 @@ All 17 shots, drawn with the locked Rahul rig on the bedroom and exterior plates
 **Animatic tip:** drop `shot_01.jpg` to `shot_17.jpg` onto a timeline at the durations in §5 (3, 4, 5, 6, 6, 7, 6, 5, 5, 7, 5, 5, 7, 5, 6, 5, 3 s = 90 s) with the scratch voice track to lock the timing before animating.
 
 > **Shot 16 staging note:** the dark corner is at the far left of the set, so in the storyboard Rahul B stands frame-left in the corner and Rahul A is in the foreground, frame-right, seen from behind. This mirrors the left/right placement written in Shot 16 but keeps the set geometry and continuity consistent.
+
+---
+
+## 12. ANIMATIC
+
+▶️ [`animatic.mp4`](./animatic.mp4): 90.0 s · 1080×1920 (9:16) · 24 fps · H.264 + AAC stereo · about −14 LUFS
+
+- Built from the 17 clean storyboard frames at the exact §5 shot durations, with the camera moves simulated: push-ins, whip-pans with motion blur, the Shot 9 snap-zoom, the phone shake in Shot 12, and the arc and lightning reveal in Shot 16. Shot 17 runs split frame → glitch → black card → the 2:17 phone lighting up again for the loop.
+- Bengali subtitles are burned in from `subtitles_bn.srt`, colour-coded by speaker.
+- **Scratch sound bed (synthesized):** rain, ringtone and vibration, heartbeat pulse, D-minor drone, thunder, disconnect beeps, clock ticks, knocks, bolt, stinger, shehnai-like drone, tinnitus, glitch and the final piano note, all on the §6 cue timings.
+- **No dialogue audio yet:** the dialogue is carried by subtitles. Record the V1/V2/V3 scratch voice (one actor, §7) and lay it over this file to check performance timing before final animation.
