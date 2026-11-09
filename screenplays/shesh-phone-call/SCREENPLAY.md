@@ -129,6 +129,13 @@ fringe to the left, plain dark blue crew-neck T-shirt, grey checked lungi, baref
 - Steel almirah, a plastic chair with clothes thrown on it, a table fan (off), a kerosene lantern unlit.
 - **Dark corner** behind the bed, between the almirah and the wall: this is where the duplicate will stand. Keep this corner **visible but dark in every wide shot** from Shot 3 onward (hidden in plain sight).
 
+**Background plate (9:16, night, empty room):**
+
+<img src="./bedroom_background.png" alt="Rahul's bedroom background plate" width="360">
+
+[`bedroom_background.png`](./bedroom_background.png) (2160×3840) · vector source [`bedroom_background.svg`](./bedroom_background.svg).
+The plate contains: window with iron grill, floral curtain, rain and moon (left-centre), wall clock frozen at **2:17** (top-right), teal door with iron bolt and a sodium-yellow gap light (right), steel almirah and the **dark corner** (far left, deepest black in the frame), Durga calendar, table fan, plastic chair with gamchha, kerosene lantern, bed with half-tied mosquito net (foreground), bedside stool where the phone sits in Shot 1, and moonlight grill shadows on the floor. Characters are animated on top; nothing in the corner is ever lit until Shot 16.
+
 ### Colour & Lighting Script
 
 | Phase | Shots | Palette | Key light |
