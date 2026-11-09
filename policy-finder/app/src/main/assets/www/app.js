@@ -30,17 +30,15 @@
   function fmtINR(n) { if (!isFinite(n)) return '—'; return '₹ ' + Math.round(n).toLocaleString('en-IN'); }
 
   async function loadAll() {
-    const meta = await DB.get('meta', 'seeded');
-    if (!meta) {
-      for (const p of SEED.products) await DB.put('products', { ...p });
-      for (const g of SEED.grids) await DB.put('grids', JSON.parse(JSON.stringify(g)));
-      for (const r of SEED.rules) await DB.put('rules', { ...r });
-      await DB.put('meta', { id: 'seeded', at: Date.now() });
-    }
-    if (!(await DB.get('meta', 'seeded2'))) {
-      for (const x of SEED.schemes) await DB.put('schemes', JSON.parse(JSON.stringify(x)));
-      for (const x of SEED.vehicles) await DB.put('vehicles', { ...x });
-      await DB.put('meta', { id: 'seeded2', at: Date.now() });
+    // Starter data: Car & Commercial Vehicle only. Older sample data (PL, BL, LAP, gold, two wheeler…)
+    // is removed once; anything you created yourself is kept.
+    if (!(await DB.get('meta', 'seeded-carcv'))) {
+      const stores = { products: SEED.products, grids: SEED.grids, rules: SEED.rules, schemes: SEED.schemes, vehicles: SEED.vehicles };
+      for (const st of Object.keys(stores)) {
+        for (const x of await DB.all(st)) if (x.sample) await DB.del(st, x.id);
+        for (const x of stores[st]) await DB.put(st, JSON.parse(JSON.stringify(x)));
+      }
+      await DB.put('meta', { id: 'seeded-carcv', at: Date.now() });
     }
     [S.products, S.docs, S.grids, S.rules, S.vehicles, S.schemes, S.cases] = await Promise.all(['products', 'docs', 'grids', 'rules', 'vehicles', 'schemes', 'cases'].map(DB.all));
     S.cases.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
@@ -171,7 +169,7 @@
   function renderSearch() {
     view.innerHTML = `
       <div class="searchbox">
-        <div class="field">${ICON.search}<input id="q" type="search" autocomplete="off" placeholder="Product, situation or vehicle… e.g. swift 2019 36 months" value="${esc(S.query)}"></div>
+        <div class="field">${ICON.search}<input id="q" type="search" autocomplete="off" placeholder="Car / CV question or vehicle… e.g. tata 1109 2021 36 months" value="${esc(S.query)}"></div>
         <div class="chips" id="cats"></div>
       </div>
       <div id="results"></div>`;
@@ -286,6 +284,7 @@
         { text: p.name, w: 5 }, { text: p.category, w: 3 }, { text: p.keywords, w: 4 },
         { text: [p.rate, p.pf, p.doc, p.other, p.amount, p.tenure].join(' '), w: 1.5 },
         { text: [p.eligibility, p.notes].join(' '), w: 1.2 },
+        { text: 'roi interest rate processing fee pf documentation doc charges tenure amount eligibility', w: 0.8 },
       ]);
       if (r.score > 0.4) results.push({ kind: 'product', item: p, ...r });
     });
@@ -347,7 +346,7 @@
         <div class="big">${esc(lk.val || '—')}${lk.val && g.unit && /\d$/.test(lk.val) ? esc(g.unit) : ''}</div>
         <div class="small">${esc(g.rowLabel || 'Row')}: ${esc(g.rows[lk.r].label)} · ${esc(g.colLabel || 'Column')}: ${esc(g.cols[lk.c])}</div>
       </div>`;
-    } else if (top.kind === 'rule') {
+    } else if (top.kind === 'rule' && top.coverage >= 0.99) {
       html += `<div class="result-box tap" data-open="rule" data-id="${top.item.id}">
         <div class="small">Solution · ${esc(top.item.title)}</div>
         <div class="pre" style="margin-top:4px">${Search.highlight(top.item.solution, terms)}</div>
@@ -753,9 +752,9 @@
     view.innerHTML = `
       <button class="btn block" id="vcalcBtn" style="padding:14px">🚗 Vehicle loan check — model + year + tenure</button>
       <div class="section-title">Vehicle schemes (age bands) <span>${S.schemes.length}</span></div>
-      ${S.schemes.map(sc => `<div class="card tap" data-open="scheme" data-id="${sc.id}"><div class="row"><h3>${esc(sc.name)}</h3><span class="badge grid">${(sc.bands || []).length} bands</span></div><div class="meta">${esc(productName(sc.productId) || '')}${sc.maxAge ? ` · max age at maturity ${esc(sc.maxAge)} yrs` : ''}</div></div>`).join('')}
+      ${S.schemes.map(sc => `<div class="card tap" data-open="scheme" data-id="${sc.id}"><div class="row"><h3>${esc(sc.name)}</h3><span class="badge grid">${(sc.bands || []).length} bands</span></div><div class="meta">${esc([...new Set([...(sc.bands || []).map(b => b.productId), sc.productId].filter(Boolean).map(productName).filter(Boolean))].join(' + '))}${sc.maxAge ? ` · max age at maturity ${esc(sc.maxAge)} yrs` : ''}</div></div>`).join('')}
       <div class="btn-row"><button class="btn secondary small" id="addScheme">+ Scheme</button><button class="btn secondary small" id="vList">Vehicle models (${S.vehicles.length})</button><button class="btn secondary small" id="addVeh">+ Model</button></div>
-      <div class="hint" style="margin:10px 4px 8px">Make a grid for LTV by tenure (rows = CIBIL / vehicle age / property type…, columns = tenure). Tip: copy a table from Excel and paste it in the grid editor.</div>
+      <div class="hint" style="margin:10px 4px 8px">Make a grid for LTV by tenure (rows = CIBIL / vehicle age / customer type…, columns = tenure). Tip: copy a table from Excel and paste it in the grid editor.</div>
       <div class="section-title">LTV / Tenure grids <span>${S.grids.length}</span></div>
       ${S.grids.length ? S.grids.map(g => `<div class="card tap" data-open="grid" data-id="${g.id}"><div class="row"><h3>${esc(g.name)}</h3><span class="badge grid">${g.rows.length}×${g.cols.length}</span></div><div class="meta">${esc(productName(g.productId) || 'No product')} · ${esc(g.rowLabel || '')} × ${esc(g.colLabel || '')}</div></div>`).join('') : emptyBox('No grids yet. Tap + to create one.')}
       <div style="height:70px"></div>`;
@@ -824,7 +823,7 @@
       }
       function draw() {
         body.innerHTML = `
-          <label class="f">Grid name</label><input class="input" data-g="name" value="${esc(draft.name)}" placeholder="e.g. Two Wheeler – LTV by CIBIL & tenure">
+          <label class="f">Grid name</label><input class="input" data-g="name" value="${esc(draft.name)}" placeholder="e.g. Used CV – LTV by vehicle age & tenure">
           <label class="f">Product</label><select class="input" data-g="productId">${productOptions().map(o => `<option value="${esc(o[0])}" ${o[0] === draft.productId ? 'selected' : ''}>${esc(o[1])}</option>`).join('')}</select>
           <div class="two"><div><label class="f">Rows are</label><input class="input" data-g="rowLabel" value="${esc(draft.rowLabel)}"></div>
           <div><label class="f">Columns are</label><input class="input" data-g="colLabel" value="${esc(draft.colLabel)}"></div></div>
@@ -948,7 +947,7 @@
     $('#exp').onclick = exportBackup;
     $('#imp').onclick = () => pickFile('.json,application/json', importBackup);
     $('#csv').onclick = () => pickFile('.csv,text/csv,text/plain', importCsv);
-    $('#csvT').onclick = () => saveText('products-template.csv', 'name,category,rate,pf,doc,other,amount,tenure,eligibility,notes,keywords\n"Personal Loan","Unsecured","14% - 24%","Up to 3% + GST","Rs 500 + GST","","","12-60 months","","","pl salaried"\n');
+    $('#csvT').onclick = () => saveText('products-template.csv', 'name,category,rate,pf,doc,other,amount,tenure,eligibility,notes,keywords\n"Used Car Loan","Car","12% - 18%","Up to 2.5% + GST","Rs 1000 + GST","","","12-60 months","","","uc used car"\n');
     $('#delSample').onclick = async () => {
       if (!confirm('Delete all SAMPLE products, grids and situations?')) return;
       for (const st of ['products', 'grids', 'rules', 'vehicles', 'schemes']) for (const x of await DB.all(st)) if (x.sample) await DB.del(st, x.id);
@@ -1080,7 +1079,7 @@
     q.tenure = tenure ? Math.min(tenure, q.maxTenure) : q.maxTenure;
     if (tenure && tenure > q.maxTenure) q.reasons.push(`Asked ${tenure} months, but max allowed is ${q.maxTenure} months.`);
     q.emi = calcEmi(q.maxLoan, isFinite(q.roi) ? q.roi : 0, q.tenure);
-    q.product = S.products.find(p => p.id === scheme.productId);
+    q.product = S.products.find(p => p.id === (band.productId || scheme.productId));
     q.ok = true;
     return q;
   }
@@ -1092,7 +1091,7 @@
     return `<div ${attrs}>
       <div class="small">${title} · ${q.year} model · age ${q.age} yr${q.age === 1 ? '' : 's'}${vehicle && vehicle.sample ? ' · SAMPLE' : ''}</div>
       <div class="big">${fmtINR(q.maxLoan)}</div>
-      <div class="small">Max loan amount</div>
+      <div class="small">Max loan amount${q.product ? ' · ' + esc(q.product.name) : ''}</div>
       <div class="kv" style="margin-top:8px">
         <div style="background:rgba(255,255,255,.14)"><span style="color:#cfe6ef">Rate</span><b>${isFinite(q.roi) ? q.roi + '%' : '—'}</b></div>
         <div style="background:rgba(255,255,255,.14)"><span style="color:#cfe6ef">Max tenure</span><b>${q.maxTenure} m</b></div>
@@ -1111,9 +1110,11 @@
     const rest = query.replace(ym[0], ' ');
     let tenure = null;
     const tm = rest.match(/(\d{1,3})\s*(m|mo|mon|month|months)\b/i) || rest.match(/(\d{1,2})\s*(y|yr|yrs|year|years)\b/i);
-    if (tm) tenure = /^y/i.test(tm[2]) ? +tm[1] * 12 : +tm[1];
-    else { const bare = rest.match(/\b(\d{1,3})\b/); if (bare && +bare[1] >= 6 && +bare[1] <= 120) tenure = +bare[1]; }
-    const terms = Search.queryTerms(rest).filter(t => !/^\d/.test(t) && !['month', 'months', 'm', 'yr', 'yrs', 'year', 'years', 'model', 'mfg', 'tenure', 'max', 'amount', 'rate', 'ltv'].includes(t));
+    let tenTok = null;
+    if (tm) { tenure = /^y/i.test(tm[2]) ? +tm[1] * 12 : +tm[1]; tenTok = tm[1]; }
+    else { const bare = rest.match(/\b(\d{1,3})\b/); if (bare && +bare[1] >= 6 && +bare[1] <= 120) { tenure = +bare[1]; tenTok = bare[1]; } }
+    // keep model numbers like "1109" / "2049"; drop the tenure number
+    const terms = Search.queryTerms(rest).filter(t => t !== tenTok && !(/^\d+$/.test(t) && t.length < 3) && !['month', 'months', 'm', 'yr', 'yrs', 'year', 'years', 'model', 'mfg', 'tenure', 'max', 'amount', 'rate', 'ltv'].includes(t));
     if (!terms.length) return null;
     let best = null;
     S.vehicles.forEach(v => {
@@ -1130,7 +1131,7 @@
       const years = []; for (let y = THIS_YEAR; y >= THIS_YEAR - 25; y--) years.push(y);
       body.innerHTML = `
         <label class="f">Vehicle model</label>
-        <input class="input" id="vM" list="vModels" placeholder="Type model e.g. Swift, Activa, Ace" value="${esc(v0 ? v0.name : '')}" autocomplete="off">
+        <input class="input" id="vM" list="vModels" placeholder="Type model e.g. Swift, Creta, LPT 1109, Ace" value="${esc(v0 ? v0.name : '')}" autocomplete="off">
         <datalist id="vModels">${S.vehicles.map(v => `<option value="${esc(v.name)}">`).join('')}</datalist>
         <div class="two">
           <div><label class="f">Manufacturing year</label><select class="input" id="vY"><option value="">—</option>${years.map(y => `<option ${y === init.year ? 'selected' : ''}>${y}</option>`).join('')}</select></div>
@@ -1229,13 +1230,15 @@
       };
       const draw = () => {
         body.innerHTML = `${d.sample ? '<div class="notice">SAMPLE scheme – replace with your real policy.</div>' : ''}
-          <label class="f">Scheme name</label><input class="input" data-s="name" value="${esc(d.name)}" placeholder="e.g. Car / Two Wheeler / Commercial Vehicle">
+          <label class="f">Scheme name</label><input class="input" data-s="name" value="${esc(d.name)}" placeholder="e.g. Car / Commercial Vehicle">
           <label class="f">Product</label><select class="input" data-s="productId">${productOptions().map(o => `<option value="${esc(o[0])}" ${o[0] === d.productId ? 'selected' : ''}>${esc(o[1])}</option>`).join('')}</select>
           <div class="two"><div><label class="f">Max vehicle age at loan end (yrs)</label><input class="input" data-s="maxAge" inputmode="numeric" value="${esc(d.maxAge)}"></div>
           <div><label class="f">Value % of new price by age 0,1,2…</label><input class="input" data-s="valuePct" value="${esc(d.valuePct)}" placeholder="90,80,70,62,55"></div></div>
           <div class="section-title">Age bands</div>
-          <div class="grid-wrap"><table class="ltv"><thead><tr><th>Age from</th><th>Age to</th><th>LTV %</th><th>ROI %</th><th>Max tenure (m)</th><th>Max loan ₹</th></tr></thead><tbody>
-          ${d.bands.map((b, i) => `<tr>${['from', 'to', 'ltv', 'roi', 'tenure', 'maxLoan'].map(k => `<td style="padding:2px"><input class="input" style="margin:0;min-width:70px;padding:6px" inputmode="decimal" data-b="${k}" data-i="${i}" value="${esc(b[k] == null ? '' : b[k])}"></td>`).join('')}</tr>`).join('')}
+          <div class="grid-wrap"><table class="ltv"><thead><tr><th>Age from</th><th>Age to</th><th>Product</th><th>LTV %</th><th>ROI %</th><th>Max tenure (m)</th><th>Max loan ₹</th></tr></thead><tbody>
+          ${d.bands.map((b, i) => `<tr>${['from', 'to', 'productId', 'ltv', 'roi', 'tenure', 'maxLoan'].map(k => k === 'productId'
+            ? `<td style="padding:2px"><select class="input" style="margin:0;min-width:130px;padding:6px" data-b="productId" data-i="${i}">${productOptions().map(o => `<option value="${esc(o[0])}" ${o[0] === (b.productId || '') ? 'selected' : ''}>${esc(o[0] ? o[1] : '(scheme product)')}</option>`).join('')}</select></td>`
+            : `<td style="padding:2px"><input class="input" style="margin:0;min-width:70px;padding:6px" inputmode="decimal" data-b="${k}" data-i="${i}" value="${esc(b[k] == null ? '' : b[k])}"></td>`).join('')}</tr>`).join('')}
           </tbody></table></div>
           <div class="btn-row"><button class="btn secondary small" id="bAdd">+ Band</button><button class="btn secondary small" id="bDel">− Last band</button></div>
           <label class="f">Notes</label><textarea class="input" data-s="notes">${esc(d.notes || '')}</textarea>

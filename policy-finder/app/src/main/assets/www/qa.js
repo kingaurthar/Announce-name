@@ -71,7 +71,12 @@ const QA = (() => {
   // words after "no / without / doesn't have …" = the thing the customer is missing
   function lackingTerms(q) {
     const m = q.toLowerCase().match(/\b(?:no|without|not\s+have|not\s+having|doesn'?t\s+have|don'?t\s+have|does\s+not\s+have|do\s+not\s+have|lacks?|missing|nahi\s+hai|nahin\s+hai|not\s+available)\s+((?:[a-z0-9]+\s*){1,3})/);
-    if (!m) return [];
+    if (!m) {
+      // "permit expired", "rc not available", "fitness invalid"
+      const e = q.toLowerCase().match(/\b([a-z]+(?:\s+[a-z]+)?)\s+(?:is\s+|has\s+|are\s+)?(?:expired|lapsed|invalid|not\s+valid|not\s+available|missing|pending)\b/);
+      if (!e) return [];
+      return Search.tokens(e[1]).filter(t => !FILLER.has(t) && !Search.STOP.has(t)).slice(-2);
+    }
     const CANON = { profe: 'proof', prof: 'proof', proff: 'proof', prooff: 'proof', propery: 'property', proprty: 'property', docs: 'documents', licence: 'license' };
     return Search.tokens(m[1]).filter(t => !FILLER.has(t) && !Search.STOP.has(t)).map(t => CANON[t] || t).slice(0, 3);
   }
@@ -179,7 +184,7 @@ const QA = (() => {
     let out = res;
     if (rm) {
       const r = rm.rule;
-      const ruleReason = { sn: { kind: 'rule', id: r.id, title: r.title, text: r.solution || r.title, ref: r.ref, mine: true }, v: r.decision, why: 'your saved policy rule', score: 99 };
+      const ruleReason = { sn: { kind: 'rule', id: r.id, title: r.title, text: r.solution || r.title, ref: r.ref, mine: true, sample: r.sample }, v: r.decision, why: 'your saved policy rule', score: 99 };
       const base = res || { reasons: [], topic: Search.queryTerms(query).filter(t => !FILLER.has(t)), lacking: lackingTerms(query) };
       out = { ...base, verdict: r.decision, fromRule: r, reasons: [ruleReason, ...base.reasons.filter(x => x.sn.id !== r.id).slice(0, 3)] };
     }

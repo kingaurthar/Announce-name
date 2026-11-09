@@ -31,6 +31,8 @@ const Search = (() => {
   ];
   SYN_GROUPS.push(
     ['rc', 'registration', 'rcbook'],
+    ['nc', 'newcar'], ['uc', 'usedcar', 'preowned'], ['ncv', 'newcv'], ['ucv', 'usedcv'],
+    ['icv', 'lcv', 'hcv', 'scv', 'truck', 'tipper', 'pickup'],
     ['proof', 'profe', 'prof', 'proff', 'prooff', 'evidence'],
     ['property', 'house', 'residence', 'ownership', 'owned', 'own', 'prop', 'propery', 'proprty'],
     ['rented', 'rent', 'tenant', 'rental'],
