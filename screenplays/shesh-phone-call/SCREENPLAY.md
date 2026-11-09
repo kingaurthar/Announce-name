@@ -129,6 +129,13 @@ fringe to the left, plain dark blue crew-neck T-shirt, grey checked lungi, baref
 - Steel almirah, a plastic chair with clothes thrown on it, a table fan (off), a kerosene lantern unlit.
 - **Dark corner** behind the bed, between the almirah and the wall: this is where the duplicate will stand. Keep this corner **visible but dark in every wide shot** from Shot 3 onward (hidden in plain sight).
 
+**Exterior plate (9:16, Shot 2 establishing, also seen through the window in Shots 6–7):**
+
+<img src="./house_exterior_background.png" alt="Exterior house background plate" width="360">
+
+[`house_exterior_background.png`](./house_exterior_background.png) (2160×3840) · vector source [`house_exterior_background.svg`](./house_exterior_background.svg).
+Contains: full moon behind torn clouds, tea-garden hills with mist, bamboo clump, the brick house with rusted tin roof and **one faint-cyan glowing window** (Rahul's room), the leaning electric pole with sodium bulb, the pond with rain rings, a tulsi mancha, a muddy courtyard with reflecting puddles, ground fog, two rain layers and foreground banana trees for parallax. The fogged ground under the window is kept **empty**, so no figure is seen yet.
+
 **Background plate (9:16, night, empty room):**
 
 <img src="./bedroom_background.png" alt="Rahul's bedroom background plate" width="360">
