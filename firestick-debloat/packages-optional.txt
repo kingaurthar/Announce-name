@@ -1,0 +1,31 @@
+# OPTIONAL tier: Amazon apps and features. Only disable these if you
+# do NOT use them. Run with --optional to include this list.
+
+# Prime Video (skip this line if you watch Prime Video!)
+# com.amazon.avod.thirdpartyclient
+
+# Freevee / IMDb TV
+com.amazon.imdb.tv.android.app
+
+# Amazon Photos
+com.amazon.bueller.photos
+
+# Amazon Music
+com.amazon.mp3
+
+# Live TV / channel guide integration
+com.amazon.tv.livetv
+
+# Alexa notifications & shopping features on TV
+com.amazon.tv.alexanotifications
+com.amazon.alexashopping
+
+# Kids / parental control apps
+com.amazon.tahoe
+com.amazon.parentalcontrols
+
+# Silk Browser
+com.amazon.cloud9
+
+# Sharing / casting to Fire TV from Amazon apps
+com.amazon.sharingservice.android.client.proxy

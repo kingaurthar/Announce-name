@@ -1,0 +1,26 @@
+# SAFE tier: telemetry, ads, crash reporting, forced update nags.
+# These do not affect normal streaming, the home screen, or the remote.
+# One package per line. Lines starting with # are ignored.
+
+# --- Telemetry / metrics / logging ---
+com.amazon.client.metrics
+com.amazon.client.metrics.api
+com.amazon.device.crashmanager
+com.amazon.dp.logger
+com.amazon.tv.csapp
+
+# --- Ads / sponsored content / screensaver ads ---
+com.amazon.kso
+com.amazon.aria
+com.amazon.tv.notificationcenter
+
+# --- Automatic system updates (stops forced OTA downloads) ---
+# Note: you will stop receiving security updates while these are disabled.
+com.amazon.device.software.ota
+com.amazon.device.software.ota.override
+com.amazon.tv.forcedotaupdater.v2
+
+# --- Misc background services rarely used ---
+com.amazon.ags.app
+com.amazon.tv.legal.notices
+com.amazon.tmm.tutorial
