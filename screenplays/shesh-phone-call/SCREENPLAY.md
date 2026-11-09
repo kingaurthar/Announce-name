@@ -882,3 +882,17 @@ The ending is built to leave **three readings open** at once. That is what drive
 - [ ] Total runtime verified at exactly 90.0 s; final frame matches first frame for loop
 - [ ] Subtitles and faces inside platform safe zones
 - [ ] Loudness -14 LUFS
+
+---
+
+## 11. STORYBOARD
+
+All 17 shots, drawn with the locked Rahul rig on the bedroom and exterior plates. Yellow marks show camera moves and framing.
+
+- 📄 Full storyboard (3 pages): [`storyboard/storyboard.pdf`](./storyboard/storyboard.pdf)
+- Pages: [`page 1`](./storyboard/storyboard_page1.jpg) (Shots 1–6) · [`page 2`](./storyboard/storyboard_page2.jpg) (Shots 7–12) · [`page 3`](./storyboard/storyboard_page3.jpg) (Shots 13–17)
+- Individual 9:16 frames (1080×1920), usable as animatic stills or image-to-video start frames: [`storyboard/frames/`](./storyboard/frames/) (`shot_01.jpg` … `shot_17.jpg`)
+
+**Animatic tip:** drop `shot_01.jpg` to `shot_17.jpg` onto a timeline at the durations in §5 (3, 4, 5, 6, 6, 7, 6, 5, 5, 7, 5, 5, 7, 5, 6, 5, 3 s = 90 s) with the scratch voice track to lock the timing before animating.
+
+> **Shot 16 staging note:** the dark corner is at the far left of the set, so in the storyboard Rahul B stands frame-left in the corner and Rahul A is in the foreground, frame-right, seen from behind. This mirrors the left/right placement written in Shot 16 but keeps the set geometry and continuity consistent.
