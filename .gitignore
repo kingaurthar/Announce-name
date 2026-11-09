@@ -16,3 +16,6 @@
 local.properties
 .env
 debug.keystore
+firestick-debloat/debloat-log*.txt
+firestick-debloat/platform-tools/
+firestick-debloat.zip
