@@ -3,6 +3,19 @@
 Offline policy finder for **New Car, Used Car, New Commercial Vehicle and Used Commercial Vehicle** loans. Everything is stored on the phone – nothing is uploaded.
 
 ## Features
+- **Ask in your own words → the app understands, asks what is missing, then gives the exact decision** – e.g.
+  `2017 car without co Applicant is posibla for 7 years loan` →
+  🧠 *understood*: Used Car · 2017 (9 yrs old) · 84 months · co-applicant No →
+  **NOT POSSIBLE**: ❌ tenure 84 m > max 36 m for 8–10 yr old car · ❌ car would be 16 yrs old at loan end (max 10)
+  · ❌ co-applicant mandatory for cars older than 5 yrs → *possible instead*: max 12 months, LTV 60%, ROI 17%, add a co-applicant
+  → **supporting lines from your policy PDFs** (document + page) → similar past cases.
+  If information is missing (year, tenure, CIBIL, co-applicant, property proof, FTU…), the app asks with one-tap answers.
+  Tap any understood item to change it.
+- **Policy conditions (the app's memory of your policy)** – *More → Policy conditions*: IF … THEN rules, e.g.
+  IF vehicle age > 5 AND co-applicant = No THEN NOT allowed. Facts: vehicle age, vehicle age at loan end, tenure,
+  co-applicant, guarantor, property proof, CIBIL (-1 = NTC), applicant age (and at loan end), customer type (FTU / fleet / captive),
+  income proof, RC, permit & fitness, loan amount. Outcome: Not allowed / Allowed with limits (max LTV, max tenure) / Note.
+  Vehicle age bands, max tenure and max vehicle age come from the vehicle schemes.
 - **Find** – type a product or a situation (e.g. `new car cibil 720 60 months`, `new cv ftu 48 months`, `ucv roi`).
   Results come instantly from products, situations, LTV grids and text inside your policy PDFs.
   Understands short forms (nc, uc, ncv, ucv, cv, lcv, hcv, roi, pf, ftu, rc…) and small spelling mistakes.

@@ -264,5 +264,22 @@ const QA = (() => {
     return { verdict, reasons: ordered, topic, lacking };
   }
 
-  return { answer, isQuestion, similarCases, CASE_V };
+  /** Best supporting lines for a topic (used by the decision engine). */
+  function lines(query, S, n = 3, kinds = ['doc', 'rule', 'product']) {
+    const topic = Search.queryTerms(query).filter(t => !FILLER.has(t));
+    if (!topic.length) return [];
+    const out = [];
+    corpus(S).forEach(sn => {
+      if (!kinds.includes(sn.kind)) return;
+      const r = Search.scoreItem(topic, [{ text: sn.text, w: 1 }]);
+      if (r.coverage < 0.5) return;
+      let score = r.score * (sn.kind === 'doc' ? 1.3 : 1) * (sn.sample ? 0.6 : 1);
+      out.push({ sn, score });
+    });
+    out.sort((a, b) => b.score - a.score);
+    const seen = new Set();
+    return out.filter(x => { const k = x.sn.text.toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, n);
+  }
+
+  return { answer, isQuestion, similarCases, CASE_V, lines };
 })();

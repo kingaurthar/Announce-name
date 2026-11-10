@@ -145,3 +145,24 @@ SEED.vehicles = [
   { id: 's-v10', sample: true, name: 'Eicher Pro 2049', scheme: 'Commercial Vehicle', price: '1800000', yearValues: '', keywords: '2049 pro icv truck' },
   { id: 's-v11', sample: true, name: 'Tata Signa 2823.K Tipper', scheme: 'Commercial Vehicle', price: '4500000', yearValues: '', keywords: 'signa 2823 tipper hcv' },
 ];
+
+/*
+ * SAMPLE eligibility conditions – the exact checks the decision engine applies.
+ * Each: IF all conditions are true THEN outcome (NO = not allowed, COND = allowed with limits, INFO = note).
+ * Facts: vehicleAge, vehicleAgeAtEnd, tenure, coApplicant, guarantor, propertyProof, cibil (-1 = NTC),
+ *        applicantAge, applicantAgeAtEnd, customerType, incomeProof, rc, permitFitness, amount.
+ */
+SEED.conds = [
+  { id: 's-c1', sample: true, title: 'Used car older than 5 years without co-applicant', products: ['s-uc'], conds: [{ fact: 'vehicleAge', op: '>', value: '5' }, { fact: 'coApplicant', op: '=', value: 'no' }], outcome: 'NO', reason: 'Co-applicant is mandatory when the car is older than 5 years.', fix: 'Add a co-applicant.', ref: 'Sample used car policy' },
+  { id: 's-c2', sample: true, title: 'Car loan with CIBIL below 650', products: ['s-nc', 's-uc'], conds: [{ fact: 'cibil', op: '>=', value: '0' }, { fact: 'cibil', op: '<', value: '650' }], outcome: 'NO', reason: 'Minimum CIBIL score for car loans is 650.', fix: 'Not possible below CIBIL 650.', ref: 'Sample car policy' },
+  { id: 's-c3', sample: true, title: 'Car loan with CIBIL 650–699 without co-applicant', products: ['s-nc', 's-uc'], conds: [{ fact: 'cibil', op: '>=', value: '650' }, { fact: 'cibil', op: '<', value: '700' }, { fact: 'coApplicant', op: '=', value: 'no' }], outcome: 'NO', reason: 'CIBIL 650–699 is allowed only with a co-applicant.', fix: 'Add a co-applicant with CIBIL 700+.', ref: 'Sample car policy' },
+  { id: 's-c4', sample: true, title: 'NTC car customer without co-applicant', products: ['s-nc', 's-uc'], conds: [{ fact: 'cibil', op: '=', value: '-1' }, { fact: 'coApplicant', op: '=', value: 'no' }], outcome: 'NO', reason: 'New-to-credit (NTC) customers need a co-applicant with CIBIL 700+.', fix: 'Add a co-applicant with CIBIL 700+.', ref: 'Sample car policy' },
+  { id: 's-c5', sample: true, title: 'CV without property proof', products: ['s-ncv', 's-ucv'], conds: [{ fact: 'propertyProof', op: '=', value: 'no' }], outcome: 'NO', reason: 'Property proof of the applicant or guarantor is mandatory for all CV cases.', fix: 'Get a guarantor with own property proof.', ref: 'Sample CV policy' },
+  { id: 's-c6', sample: true, title: 'FTU new CV without guarantor', products: ['s-ncv'], conds: [{ fact: 'customerType', op: '=', value: 'FTU' }, { fact: 'guarantor', op: '=', value: 'no' }], outcome: 'NO', reason: 'First time users (FTU) need a guarantor with own property.', fix: 'Add a guarantor with own property.', ref: 'Sample CV policy' },
+  { id: 's-c7', sample: true, title: 'FTU new CV – LTV cap', products: ['s-ncv'], conds: [{ fact: 'customerType', op: '=', value: 'FTU' }], outcome: 'COND', reason: 'FTU is funded at a maximum of 75% LTV.', maxLtv: '75', ref: 'Sample CV policy' },
+  { id: 's-c8', sample: true, title: 'Used CV for FTU', products: ['s-ucv'], conds: [{ fact: 'customerType', op: '=', value: 'FTU' }], outcome: 'NO', reason: 'Used CV is not funded for first time users.', fix: 'Consider a new CV with guarantor.', ref: 'Sample used CV policy' },
+  { id: 's-c9', sample: true, title: 'Used CV without permit / fitness', products: ['s-ucv'], conds: [{ fact: 'permitFitness', op: '=', value: 'no' }], outcome: 'NO', reason: 'Valid permit and fitness certificate are mandatory for used CV.', fix: 'Renew permit / fitness first.', ref: 'Sample used CV policy' },
+  { id: 's-c10', sample: true, title: 'Used vehicle without original RC', products: ['s-uc', 's-ucv'], conds: [{ fact: 'rc', op: '=', value: 'no' }], outcome: 'NO', reason: 'Original RC is mandatory for used vehicle loans.', fix: 'Get the original RC.', ref: 'Sample used vehicle policy' },
+  { id: 's-c11', sample: true, title: 'Applicant younger than 21', products: [], conds: [{ fact: 'applicantAge', op: '<', value: '21' }], outcome: 'NO', reason: 'Minimum applicant age is 21 years.', ref: 'Sample policy' },
+  { id: 's-c12', sample: true, title: 'Applicant older than 65 at loan end', products: [], conds: [{ fact: 'applicantAgeAtEnd', op: '>', value: '65' }], outcome: 'NO', reason: 'Applicant age at the end of the loan must not exceed 65 years.', fix: 'Reduce tenure or add a younger co-applicant.', ref: 'Sample policy' },
+];

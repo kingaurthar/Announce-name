@@ -9,7 +9,7 @@
 
   if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'lib/pdf.worker.min.js';
 
-  const S = { products: [], docs: [], grids: [], rules: [], vehicles: [], schemes: [], cases: [], tab: 'search', query: '', cat: '' };
+  const S = { products: [], docs: [], grids: [], rules: [], vehicles: [], schemes: [], cases: [], conds: [], tab: 'search', query: '', cat: '' };
 
   const ICON = {
     search: '<svg viewBox="0 0 24 24"><path d="M10 2a8 8 0 0 1 6.3 12.9l5.4 5.4-1.4 1.4-5.4-5.4A8 8 0 1 1 10 2zm0 2a6 6 0 1 0 0 12 6 6 0 0 0 0-12z"/></svg>',
@@ -40,7 +40,11 @@
       }
       await DB.put('meta', { id: 'seeded-carcv', at: Date.now() });
     }
-    [S.products, S.docs, S.grids, S.rules, S.vehicles, S.schemes, S.cases] = await Promise.all(['products', 'docs', 'grids', 'rules', 'vehicles', 'schemes', 'cases'].map(DB.all));
+    if (!(await DB.get('meta', 'seeded-conds'))) {
+      for (const x of SEED.conds) await DB.put('conds', JSON.parse(JSON.stringify(x)));
+      await DB.put('meta', { id: 'seeded-conds', at: Date.now() });
+    }
+    [S.products, S.docs, S.grids, S.rules, S.vehicles, S.schemes, S.cases, S.conds] = await Promise.all(['products', 'docs', 'grids', 'rules', 'vehicles', 'schemes', 'cases', 'conds'].map(DB.all));
     S.cases.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
     S.vehicles.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     S.schemes.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
@@ -169,7 +173,7 @@
   function renderSearch() {
     view.innerHTML = `
       <div class="searchbox">
-        <div class="field">${ICON.search}<input id="q" type="search" autocomplete="off" placeholder="Car / CV question or vehicle… e.g. tata 1109 2021 36 months" value="${esc(S.query)}"></div>
+        <div class="field">${ICON.search}<input id="q" type="search" autocomplete="off" placeholder="Ask anything… e.g. 2017 car without co-applicant for 7 years possible?" value="${esc(S.query)}"></div>
         <div class="chips" id="cats"></div>
       </div>
       <div id="results"></div>`;
@@ -323,23 +327,25 @@
       const r = Search.scoreItem(terms, [{ text: c.customer, w: 5 }, { text: c.situation, w: 3 }, { text: c.vehicle, w: 3 }, { text: prod ? prod.name : '', w: 2 }, { text: c.tags, w: 2 }, { text: c.reason, w: 1 }, { text: c.caseNo, w: 4 }]);
       if (r.score > 0.4) results.push({ kind: 'case', item: c, ...r, score: r.score * 0.9 });
     });
-    // Question like "can we do X without Y?" -> answer from uploaded policies
-    const qa = QA.answer(query, S);
-    S.lastQa = qa ? { query, qa } : null;
+    // 1) Decision engine: understand the question, ask what is missing, give the exact answer
+    const eng = engineRun(query);
+    // 2) Otherwise: question answered from document text / saved rules
+    const qa = eng ? null : QA.answer(query, S);
+    S.lastQa = eng ? { query, qa: { verdict: eng.verdict === 'NEED_INFO' ? '' : eng.verdict, topic: Search.queryTerms(query), lacking: [], reasons: [], productId: eng.product ? eng.product.id : '' } } : qa ? { query, qa } : null;
     // Vehicle model + manufacturing year in the query -> instant max loan / tenure / rate
-    const vq = qa && qa.verdict !== 'NOTFOUND' ? null : vehicleFromQuery(query);
+    const vq = eng || (qa && qa.verdict !== 'NOTFOUND') ? null : vehicleFromQuery(query);
     results.sort((a, b) => b.score - a.score);
 
-    if (!results.length && !vq && !qa) {
+    if (!results.length && !vq && !qa && !eng) {
       out.innerHTML = emptyBox(`No match for “${esc(query)}”. Try fewer or different words (e.g. product short form: pl, bl, lap, tw).`);
       return;
     }
     const top = results[0] || { score: 0 };
-    let html = qa ? answerBox(qa) : '';
+    let html = eng ? engineBox(eng) : qa ? answerBox(qa) : '';
     if (vq) html += quoteBox(vq.vehicle, vq.quote, true);
     // Instant answer box: best LTV grid lookup (if reasonably relevant), else top situation
     const gridHit = results.find(x => x.kind === 'grid' && x.lookup && x.score >= top.score * 0.4);
-    if (vq || qa) { /* answer already shown */ } else if (gridHit) {
+    if (vq || qa || eng) { /* answer already shown */ } else if (gridHit) {
       const g = gridHit.item, lk = gridHit.lookup;
       html += `<div class="result-box tap" data-open="grid" data-id="${g.id}" data-r="${lk.r}" data-c="${lk.c}">
         <div class="small">${esc(g.name)}</div>
@@ -414,11 +420,12 @@
 
   // global click delegation for cards
   document.addEventListener('click', e => {
+    if (engineClick(e)) return;
     if (e.target.closest('[data-savecase]')) {
       const last = S.lastQa; if (!last) return;
       const map = { NO: 'Rejected', YES: 'Approved', COND: 'Approved with conditions' };
       const prodHit = S.products.map(p => ({ p, r: Search.scoreItem(last.qa.topic || [], [{ text: p.name + ' ' + (p.keywords || ''), w: 1 }]) })).filter(x => x.r.matched).sort((a, b) => b.r.score - a.r.score)[0];
-      editCase(null, { situation: last.query.replace(/\s*\?+\s*$/, ''), decision: map[last.qa.verdict] || '', date: new Date().toISOString().slice(0, 10), productId: prodHit ? prodHit.p.id : '' });
+      editCase(null, { situation: last.query.replace(/\s*\?+\s*$/, ''), decision: map[last.qa.verdict] || '', date: new Date().toISOString().slice(0, 10), productId: last.qa.productId || (prodHit ? prodHit.p.id : '') });
       return;
     }
     if (e.target.closest('[data-saverule]')) {
@@ -898,6 +905,10 @@
   // ---------- MORE ----------
   function renderMore() {
     view.innerHTML = `
+      <div class="section-title">Policy conditions (exact checks) <span>${S.conds.length}</span></div>
+      <div class="hint" style="margin:0 4px 8px">The app remembers your policy as IF … THEN conditions (e.g. used car older than 5 years AND no co-applicant → NOT allowed). Every question is checked against all of them.</div>
+      <button class="btn block" id="openConds" style="margin-bottom:8px">⚙️ View / add policy conditions</button>
+
       <div class="section-title">My policy rules (fixed decisions) <span>${S.rules.length}</span></div>
       <div class="hint" style="margin:0 4px 8px">Add a new policy yourself: situation + decision (NO / YES / conditions) + reason. When a question matches, the app gives exactly this decision first.</div>
       <button class="btn block" id="addRule" style="margin-bottom:8px">+ Add new policy rule</button>
@@ -931,6 +942,7 @@
       </div>
       <div class="meta" style="text-align:center;margin-top:16px">Policy Finder · works offline</div>`;
     $('#addRule').onclick = () => editRule(null);
+    $('#openConds').onclick = openCondList;
     $('#addCase').onclick = () => editCase(null, { date: new Date().toISOString().slice(0, 10) });
     $('#listCases').onclick = openCaseList;
     $('#ocrAll').onclick = async e => {
@@ -950,13 +962,13 @@
     $('#csvT').onclick = () => saveText('products-template.csv', 'name,category,rate,pf,doc,other,amount,tenure,eligibility,notes,keywords\n"Used Car Loan","Car","12% - 18%","Up to 2.5% + GST","Rs 1000 + GST","","","12-60 months","","","uc used car"\n');
     $('#delSample').onclick = async () => {
       if (!confirm('Delete all SAMPLE products, grids and situations?')) return;
-      for (const st of ['products', 'grids', 'rules', 'vehicles', 'schemes']) for (const x of await DB.all(st)) if (x.sample) await DB.del(st, x.id);
+      for (const st of ['products', 'grids', 'rules', 'vehicles', 'schemes', 'conds']) for (const x of await DB.all(st)) if (x.sample) await DB.del(st, x.id);
       await loadAll(); renderTab(); toast('Sample data deleted');
     };
     $('#wipe').onclick = async () => {
       if (!confirm('Delete ALL products, policies, grids and situations from this phone?')) return;
       if (!confirm('Are you sure? Export a backup first if you need it.')) return;
-      for (const st of ['products', 'docs', 'files', 'grids', 'rules', 'vehicles', 'schemes', 'cases']) await DB.clear(st);
+      for (const st of ['products', 'docs', 'files', 'grids', 'rules', 'vehicles', 'schemes', 'cases', 'conds']) await DB.clear(st);
       await loadAll(); renderTab(); toast('All data deleted');
     };
   }
@@ -979,7 +991,7 @@
   async function exportBackup() {
     toast('Preparing backup…');
     const data = { app: 'policy-finder', version: 1, exported: new Date().toISOString() };
-    for (const st of ['products', 'grids', 'rules', 'docs', 'vehicles', 'schemes', 'cases']) data[st] = await DB.all(st);
+    for (const st of ['products', 'grids', 'rules', 'docs', 'vehicles', 'schemes', 'cases', 'conds']) data[st] = await DB.all(st);
     const files = await DB.all('files');
     data.files = [];
     for (const f of files) data.files.push({ id: f.id, name: f.name, type: f.type, data: await blobToB64(f.blob) });
@@ -991,7 +1003,7 @@
       const data = JSON.parse(await file.text());
       if (!data || (data.app !== 'policy-finder' && !data.products)) throw new Error('Not a Policy Finder backup');
       let n = 0;
-      for (const st of ['products', 'grids', 'rules', 'docs', 'vehicles', 'schemes', 'cases']) for (const x of (data[st] || [])) { await DB.put(st, x); n++; }
+      for (const st of ['products', 'grids', 'rules', 'docs', 'vehicles', 'schemes', 'cases', 'conds']) for (const x of (data[st] || [])) { await DB.put(st, x); n++; }
       for (const f of (data.files || [])) await DB.put('files', { id: f.id, name: f.name, type: f.type, blob: b64ToBlob(f.data, f.type) });
       await loadAll(); renderTab(); toast(`Imported ${n} items`);
     } catch (e) { toast('Import failed: ' + e.message, 4000); }
@@ -1363,6 +1375,191 @@
         await loadAll(); draw(); renderTab(); toast(`${n} cases imported`);
       };
       draw();
+    });
+  }
+
+  // ---------- DECISION ENGINE UI (understand → ask → exact answer) ----------
+  // S.eng = { query, answers: {fact: value}, skipped: Set, edit: fact|null }
+  function engineState(query) {
+    if (!S.eng || S.eng.query !== query) S.eng = { query, answers: {}, skipped: new Set(), edit: null };
+    return S.eng;
+  }
+  function engineRun(query) {
+    const st = engineState(query);
+    const parsed = Engine.understand(query, S);
+    const model = parsed.model; delete parsed.model;
+    const hasVehicle = parsed.vehicleType || model || parsed.isNew;
+    const structured = Object.keys(parsed).filter(k => !['vehicleType', 'isNew'].includes(k));
+    const answered = Object.keys(st.answers).length > 0;
+    if (!answered && !(hasVehicle && (QA.isQuestion(query) || structured.length >= 1))) return null;
+    const facts = { ...parsed };
+    Object.entries(st.answers).forEach(([k, v]) => { if (v === '__clear__') delete facts[k]; else facts[k] = v; });
+    const d = Engine.decide(facts, S, st.skipped);
+    d.model = model; d.parsed = parsed;
+    if (model && d.facts.mfgYear != null) {
+      const q = vehicleQuote({ vehicle: model, year: d.facts.mfgYear, tenure: d.facts.tenure && d.possible ? Math.min(d.facts.tenure, d.possible.maxTenure) : null, value: d.facts.amount ? undefined : undefined });
+      if (q.ok) d.quote = q;
+    }
+    return d;
+  }
+
+  const ENG_VERDICT = {
+    NO: ['NOT POSSIBLE', 'v-NO'], YES: ['POSSIBLE', 'v-YES'], COND: ['POSSIBLE WITH CONDITIONS', 'v-COND'], NEED_INFO: ['I NEED A LITTLE MORE INFORMATION', 'v-UNCLEAR'],
+  };
+  function engineQuestion(fact, d, small) {
+    const F = Engine.FACTS[fact];
+    if (!F) return '';
+    let opts = '';
+    if (F.type === 'yesno') opts = ['yes', 'no'].map(v => `<button class="btn ${small ? 'secondary ' : ''}small" data-eans="${fact}" data-v="${v}">${v === 'yes' ? 'Yes' : 'No'}</button>`).join('');
+    else if (F.type === 'choice') opts = F.options.map(v => `<button class="btn ${small ? 'secondary ' : ''}small" data-eans="${fact}" data-v="${esc(v)}">${esc(v)}</button>`).join('');
+    else {
+      opts = (F.chips ? F.chips() : []).map(v => `<button class="btn secondary small" data-eans="${fact}" data-v="${v}">${esc(Engine.fmtVal(fact, v))}</button>`).join('') +
+        `<span style="display:inline-flex;gap:4px"><input class="input" id="engNum" inputmode="numeric" placeholder="type" style="width:90px;margin:0;padding:6px 8px"><button class="btn small" data-enum="${fact}">OK</button></span>`;
+    }
+    return `<div class="ask ${small ? 'small' : ''}"><div class="ask-q">❓ ${esc(F.q)}</div><div class="btn-row" style="margin:6px 0 0">${opts}<button class="btn secondary small" data-eskip="${fact}">Skip / don't know</button></div></div>`;
+  }
+
+  function engineBox(d) {
+    const st = S.eng;
+    const f = d.facts;
+    // what I understood
+    const chipFacts = ['vehicleType', 'isNew', 'mfgYear', 'tenure', 'coApplicant', 'guarantor', 'propertyProof', 'cibil', 'applicantAge', 'customerType', 'incomeProof', 'rc', 'permitFitness', 'amount'];
+    const chips = chipFacts.filter(k => f[k] !== undefined).map(k => {
+      let val = Engine.fmtVal(k, f[k]);
+      if (k === 'mfgYear') val += ` (${f.vehicleAge} yr${f.vehicleAge === 1 ? '' : 's'} old)`;
+      const by = st.answers[k] !== undefined ? ' ans' : '';
+      return `<button class="fchip${by}" data-efact="${k}"><span>${esc(Engine.FACTS[k].label)}</span> ${esc(val)}</button>`;
+    });
+    if (d.model) chips.unshift(`<span class="fchip"><span>Model</span> ${esc(d.model.name)}</span>`);
+    const prodName = d.product ? d.product.name : (f.vehicleType ? `${f.vehicleType} loan (new / used not known)` : '');
+    const [vtxt, vcls] = ENG_VERDICT[d.verdict];
+    const icon = c => c.ok === false ? '❌' : c.ok === 'cond' ? '⚠️' : c.ok === null ? '❔' : c.info ? 'ℹ️' : '✅';
+    const checks = d.checks.slice().sort((a, b) => (a.ok === false ? 0 : a.ok === 'cond' ? 1 : 2) - (b.ok === false ? 0 : b.ok === 'cond' ? 1 : 2))
+      .map(c => `<div class="chk"><span class="ci">${icon(c)}</span><div><div>${esc(c.text)}</div><div class="src">${c.why ? 'Because: ' + esc(c.why) + ' · ' : ''}📄 ${esc(c.ref || '')}${c.rule && c.rule.sample ? ' · SAMPLE' : ''}</div></div></div>`).join('');
+    // what is possible
+    let possible = '';
+    if (d.possible && d.verdict !== 'NEED_INFO') {
+      const p = d.possible;
+      const lines = [];
+      if (p.maxTenure > 0) lines.push(`<b>${esc(p.product ? p.product.name : '')}</b>: max tenure <b>${p.maxTenure} months</b>, LTV up to <b>${p.ltv}%</b>, ROI <b>${p.roi}%</b>`);
+      p.fixes.forEach(x => lines.push(esc(x)));
+      if (d.quote) lines.push(`Max loan for ${esc(d.model.name)} (${d.facts.mfgYear}): <b>${fmtINR(d.quote.maxLoan)}</b> · EMI ${fmtINR(d.quote.emi)} for ${d.quote.tenure} m`);
+      if (lines.length) possible = `<div class="why">${d.verdict === 'NO' ? 'What is possible instead' : 'Loan terms'}</div><ul class="poss">${lines.map(l => `<li>${l}</li>`).join('')}</ul>`;
+    }
+    // supporting policy documents
+    const topics = d.topics.length ? d.topics : d.checks.filter(c => c.rule).map(c => c.rule.title);
+    const sup = []; const seen = new Set();
+    topics.forEach(t => QA.lines(t + ' ' + (d.product ? d.product.name : f.vehicleType || ''), S, 2, ['doc']).forEach(x => { if (!seen.has(x.sn.text)) { seen.add(x.sn.text); sup.push(x); } }));
+    const supHtml = sup.slice(0, 4).map(x => `<div class="ev tap" data-open="doc" data-id="${x.sn.id}" ${x.sn.page ? `data-page="${x.sn.page}"` : ''}><div class="q">“${esc(x.sn.text)}”</div><div class="src">📄 ${esc(x.sn.title)}${x.sn.page ? ' · page ' + x.sn.page : ''}</div></div>`).join('');
+    // similar past cases
+    const pc = QA.similarCases(st.query, S);
+    const pcHtml = pc ? `<div class="why">Similar past cases (${pc.total}): ${pc.counts.YES ? `✅ ${pc.counts.YES} ` : ''}${pc.counts.COND ? `⚠️ ${pc.counts.COND} ` : ''}${pc.counts.NO ? `❌ ${pc.counts.NO}` : ''}</div>${pc.list.slice(0, 2).map(x => caseLine(x.c, null)).join('')}` : '';
+    const nextAsk = st.edit || d.ask[0];
+
+    return `<div class="answer engine ${vcls}">
+      <div class="why" style="margin-top:0">🧠 I understood ${d.product || f.vehicleType ? '· ' + esc(prodName) : ''}</div>
+      <div class="fchips">${chips.join('') || '<span class="meta">Nothing yet</span>'}</div>
+      ${d.verdict === 'NEED_INFO' || st.edit ? engineQuestion(nextAsk, d, false) : ''}
+      ${d.verdict !== 'NEED_INFO' ? `<div class="verdict" style="margin-top:10px">${vtxt}</div>` : ''}
+      ${checks ? `<div class="why">${d.verdict === 'NEED_INFO' ? 'Checked so far' : 'Policy checks'}</div>${checks}` : ''}
+      ${possible}
+      ${d.verdict !== 'NEED_INFO' && !st.edit && d.ask.length ? `<div class="why">To complete all checks</div>${engineQuestion(d.ask[0], d, true)}` : ''}
+      ${d.verdict !== 'NEED_INFO' ? `<div class="why">Supporting policy documents</div>${supHtml || '<div class="meta">No matching line in your uploaded documents yet – upload the circular and it will be shown here.</div>'}` : ''}
+      ${pcHtml}
+      <div class="disc">Decided from the policy saved in the app (vehicle schemes + eligibility conditions)${(S.conds || []).some(c => c.sample) ? ' – SAMPLE conditions included, replace with your real policy' : ''}.</div>
+      <div class="btn-row"><button class="btn secondary small" data-savecase>📝 Record as past case</button><button class="btn secondary small" data-econds>⚙️ Policy conditions</button></div>
+    </div>`;
+  }
+
+  function engineClick(e) {
+    const st = S.eng; if (!st) return false;
+    const a = e.target.closest('[data-eans]');
+    if (a) {
+      const k = a.dataset.eans; const F = Engine.FACTS[k];
+      st.answers[k] = F.type === 'number' ? +a.dataset.v : a.dataset.v;
+      st.skipped.delete(k); st.edit = null; renderResults(); return true;
+    }
+    const n = e.target.closest('[data-enum]');
+    if (n) {
+      const v = parseFloat(($('#engNum') || {}).value);
+      if (!isFinite(v)) { toast('Type a number'); return true; }
+      st.answers[n.dataset.enum] = v; st.skipped.delete(n.dataset.enum); st.edit = null; renderResults(); return true;
+    }
+    const sk = e.target.closest('[data-eskip]');
+    if (sk) { st.skipped.add(sk.dataset.eskip); if (st.edit === sk.dataset.eskip) { st.answers[st.edit] = '__clear__'; st.edit = null; } renderResults(); return true; }
+    const fc = e.target.closest('[data-efact]');
+    if (fc) { st.edit = st.edit === fc.dataset.efact ? null : fc.dataset.efact; renderResults(); return true; }
+    if (e.target.closest('[data-econds]')) { openCondList(); return true; }
+    return false;
+  }
+
+  // ---------- eligibility conditions editor ----------
+  const OPS = [['=', 'is'], ['!=', 'is not'], ['<', '<'], ['<=', '≤'], ['>', '>'], ['>=', '≥']];
+  const COND_FACTS = ['vehicleAge', 'vehicleAgeAtEnd', 'tenure', 'coApplicant', 'guarantor', 'propertyProof', 'cibil', 'applicantAge', 'applicantAgeAtEnd', 'customerType', 'incomeProof', 'rc', 'permitFitness', 'amount'];
+  const OUTCOMES = [['NO', '❌ Not allowed'], ['COND', '⚠️ Allowed with conditions / limits'], ['INFO', 'ℹ️ Note only']];
+
+  function openCondList() {
+    openSheet('Policy conditions', body => {
+      const list = S.conds || [];
+      body.innerHTML = `<div class="hint" style="margin:0 2px 10px">These are the exact checks the app applies to every question: <b>IF</b> all conditions are true <b>THEN</b> the outcome. Vehicle age, tenure and LTV bands come from the vehicle schemes (Vehicle/LTV tab).</div>
+        <button class="btn block" id="cnAdd" style="margin-bottom:10px">+ Add policy condition</button>
+        ${list.map(c => `<div class="card tap" data-cond="${c.id}"><div class="row"><h3>${esc(c.title)}</h3><span class="badge rule">${c.outcome === 'NO' ? '❌ NO' : c.outcome === 'COND' ? '⚠️ COND' : 'ℹ️'}</span></div>
+          <div class="meta">${esc((c.products || []).map(productName).filter(Boolean).join(', ') || 'All products')}</div>
+          <div class="snip"><b>IF</b> ${esc((c.conds || []).map(Engine.condText).join(' AND '))}</div>
+          <div class="snip"><b>THEN</b> ${esc(c.reason || '')}${c.sample ? ' · <i>SAMPLE</i>' : ''}</div></div>`).join('') || '<div class="meta">No conditions yet.</div>'}`;
+      $('#cnAdd', body).onclick = () => editCond(null);
+      $$('[data-cond]', body).forEach(el => el.onclick = () => editCond(S.conds.find(x => x.id === el.dataset.cond)));
+    });
+  }
+
+  function editCond(c0) {
+    const d = c0 ? JSON.parse(JSON.stringify(c0)) : { title: '', products: [], conds: [{ fact: 'coApplicant', op: '=', value: 'no' }], outcome: 'NO', reason: '', fix: '', ref: '', maxLtv: '', maxTenure: '' };
+    openSheet(c0 ? 'Edit policy condition' : 'New policy condition', (body, actions) => {
+      const read = () => {
+        ['title', 'outcome', 'reason', 'fix', 'ref', 'maxLtv', 'maxTenure'].forEach(k => { const el = $(`[data-c="${k}"]`, body); if (el) d[k] = el.value.trim(); });
+        d.products = $$('[data-cp]:checked', body).map(x => x.value);
+        $$('[data-ci]', body).forEach(el => { d.conds[+el.dataset.ci][el.dataset.ck] = el.value.trim(); });
+      };
+      const valueInput = (c, i) => {
+        const F = Engine.FACTS[c.fact] || {};
+        if (F.type === 'yesno') return `<select class="input" data-ci="${i}" data-ck="value" style="margin:0">${['yes', 'no'].map(v => `<option ${String(c.value).toLowerCase() === v ? 'selected' : ''} value="${v}">${v === 'yes' ? 'Yes' : 'No'}</option>`).join('')}</select>`;
+        if (F.type === 'choice') return `<select class="input" data-ci="${i}" data-ck="value" style="margin:0">${F.options.map(v => `<option ${c.value === v ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select>`;
+        return `<input class="input" data-ci="${i}" data-ck="value" inputmode="decimal" value="${esc(c.value)}" style="margin:0">`;
+      };
+      const draw = () => {
+        body.innerHTML = `${d.sample ? '<div class="notice">SAMPLE condition – replace with your real policy.</div>' : ''}
+          <label class="f">Name</label><input class="input" data-c="title" value="${esc(d.title)}" placeholder="e.g. Used car older than 5 years without co-applicant">
+          <label class="f">Applies to products (none ticked = all)</label>
+          <div class="card" style="padding:6px 12px">${S.products.map(p => `<label style="display:flex;gap:8px;padding:5px 0"><input type="checkbox" data-cp value="${p.id}" ${(d.products || []).includes(p.id) ? 'checked' : ''}> ${esc(p.name)}</label>`).join('')}</div>
+          <label class="f">IF (all of these are true)</label>
+          ${d.conds.map((c, i) => `<div class="cond-row">
+            <select class="input" data-ci="${i}" data-ck="fact" data-refresh style="margin:0">${COND_FACTS.map(k => `<option value="${k}" ${c.fact === k ? 'selected' : ''}>${esc(Engine.FACTS[k].label)}</option>`).join('')}</select>
+            <select class="input" data-ci="${i}" data-ck="op" style="margin:0;width:70px">${OPS.map(o => `<option value="${o[0]}" ${c.op === o[0] ? 'selected' : ''}>${o[1]}</option>`).join('')}</select>
+            ${valueInput(c, i)}
+            <button class="icon-btn" data-delc="${i}" title="Remove">✕</button></div>`).join('')}
+          <button class="btn secondary small" id="cnPlus">+ Add condition</button>
+          <label class="f">THEN outcome</label><select class="input" data-c="outcome">${OUTCOMES.map(o => `<option value="${o[0]}" ${d.outcome === o[0] ? 'selected' : ''}>${o[1]}</option>`).join('')}</select>
+          <div class="two"><div><label class="f">Max LTV % (optional)</label><input class="input" data-c="maxLtv" inputmode="decimal" value="${esc(d.maxLtv || '')}"></div>
+          <div><label class="f">Max tenure months (optional)</label><input class="input" data-c="maxTenure" inputmode="numeric" value="${esc(d.maxTenure || '')}"></div></div>
+          <label class="f">Reason shown in the answer</label><textarea class="input" data-c="reason" placeholder="e.g. Co-applicant is mandatory when the car is older than 5 years.">${esc(d.reason || '')}</textarea>
+          <label class="f">What is possible instead (optional)</label><input class="input" data-c="fix" value="${esc(d.fix || '')}" placeholder="e.g. Add a co-applicant.">
+          <label class="f">Policy reference</label><input class="input" data-c="ref" value="${esc(d.ref || '')}" placeholder="e.g. Used Car Policy 2026, Sec 4, page 3">
+          <div class="btn-row" style="margin-top:14px"><button class="btn block" id="cnSave">Save condition</button></div>
+          ${c0 ? '<div class="btn-row"><button class="btn danger block" id="cnDel">Delete condition</button></div>' : ''}`;
+        $$('[data-refresh]', body).forEach(el => el.onchange = () => { read(); const c = d.conds[+el.dataset.ci]; const F = Engine.FACTS[c.fact]; c.value = F.type === 'yesno' ? 'no' : F.type === 'choice' ? F.options[0] : ''; c.op = F.type === 'number' ? '>' : '='; draw(); });
+        $$('[data-delc]', body).forEach(el => el.onclick = () => { read(); if (d.conds.length > 1) d.conds.splice(+el.dataset.delc, 1); draw(); });
+        $('#cnPlus', body).onclick = () => { read(); d.conds.push({ fact: 'cibil', op: '<', value: '' }); draw(); };
+        $('#cnSave', body).onclick = async () => {
+          read();
+          if (!d.title) { toast('Enter a name'); return; }
+          if (d.conds.some(c => c.value === '' || c.value == null)) { toast('Fill every condition value'); return; }
+          delete d.sample;
+          await DB.put('conds', d); await loadAll(); closeSheet(); if (stack.length) showTopSheet(); renderTab(); toast('Condition saved');
+        };
+        if (c0) $('#cnDel', body).onclick = async () => { if (!confirm('Delete this condition?')) return; await DB.del('conds', d.id); await loadAll(); closeSheet(); if (stack.length) showTopSheet(); renderTab(); toast('Deleted'); };
+      };
+      draw();
+      actionBtn(actions, ICON.save, 'Save', () => $('#cnSave', body).click());
     });
   }
 
